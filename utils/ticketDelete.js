@@ -182,23 +182,6 @@ async function deleteTicket(interaction, reason = "No reason provided.") {
             inline: true,
           },
         )
-        .addFields(
-          {
-            name: config.deleteDMEmbed.field_author || "Ticket Author",
-            value: `> ${sanitizeInput(ticketUserID.tag)}`,
-            inline: true,
-          },
-          {
-            name: config.deleteDMEmbed.field_deletedBy || "Deleted By",
-            value: `> ${sanitizeInput(interaction.user.tag)}`,
-            inline: true,
-          },
-          {
-            name: config.deleteDMEmbed.field_claimedBy || "Claimed By",
-            value: `> ${claimUser ? sanitizeInput(claimUser.tag) : "None"}`,
-            inline: true,
-          },
-        )
         .addFields({
           name: config.deleteDMEmbed.field_creation || "Ticket Creation Time",
           value: `> <t:${await ticketsDB.get(`${channelID}.creationTime`)}:F>`,
