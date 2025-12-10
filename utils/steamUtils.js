@@ -274,4 +274,5 @@ module.exports = {
   extractSteamIdsFromText,
   getFullPlayerProfile,
   formatDaysAgo,
+  formatServerTime,
 };
