@@ -137,7 +137,7 @@ function buildTargetFields(targetProfiles) {
     }
 
     let value = "";
-    value += `**Target ${idx + 1}**`;
+    value += `**Target ${idx + 1}**\n`;
     value += `Steam: ${profile.steamName}\n`;
     value += `SteamID64: \`${profile.steamId}\`\n`;
     value += `Rust Playtime: ${rustPlaytime}\n`;
