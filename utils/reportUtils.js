@@ -60,7 +60,7 @@ function buildPvpLine(profile) {
 function buildSeparator(title) {
   return {
     name: `===== ${title.toUpperCase()} =====`,
-    value: "\u200B",
+    value: "",
     inline: false,
   };
 }
@@ -137,7 +137,7 @@ function buildTargetFields(targetProfiles) {
     }
 
     let value = "";
-    value += `Target ${idx + 1}\n`;
+    value += `**Target ${idx + 1}**`;
     value += `Steam: ${profile.steamName}\n`;
     value += `SteamID64: \`${profile.steamId}\`\n`;
     value += `Rust Playtime: ${rustPlaytime}\n`;

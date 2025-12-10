@@ -23,7 +23,10 @@ const {
 const { autoResponses } = require("./autoResponses.js");
 
 // New imports
-const { getFullPlayerProfile } = require("./steamUtils.js");
+const {
+  getFullPlayerProfile,
+  extractSteamIdsFromText,
+} = require("./steamUtils.js");
 const {
   collectSteamIdsFromAnswers,
   splitReporterAndTargets,
@@ -99,25 +102,28 @@ if (withModal) {
       }
     }
 
-    // Format for embed
-    let valueToShow = rawValue;
+    // Format for embed – handle multiple SteamIDs nicely
+    const idsInAnswer = extractSteamIdsFromText(rawValue || "");
+
+    let valueToShow;
     if (category?.useCodeBlocks) {
-      valueToShow = `\`\`\`${valueToShow}\`\`\``;
+      if (idsInAnswer.length > 1) {
+        // Multiple IDs → one per line in codeblock
+        valueToShow = "```" + idsInAnswer.join("\n") + "```";
+      } else {
+        valueToShow = "```" + rawValue + "```";
+      }
     } else {
-      valueToShow = `>>> ${valueToShow}`;
+      if (idsInAnswer.length > 1) {
+        // Multiple IDs → one per line, each quoted
+        valueToShow = idsInAnswer.map((id) => `>>> ${id}`).join("\n");
+      } else {
+        valueToShow = `>>> ${rawValue}`;
+      }
     }
 
-    // Ensure duplicate labels do not overwrite each other visually
-    let finalLabel = label;
-    let counter = 2;
-    while (ticketOpenEmbed.data.fields?.some(f => f.name === finalLabel)) {
-      finalLabel = `${label} (${counter})`;
-      counter++;
-    }
-
-    // Add to ticket embed only if not empty
     ticketOpenEmbed.addFields({
-      name: finalLabel,
+      name: `${label}`,
       value: valueToShow,
     });
   }

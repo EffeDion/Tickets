@@ -248,21 +248,21 @@ function formatDaysAgo(days) {
   return `${years} year${years === 1 ? "" : "s"} ago`;
 }
 
-function formatServerTime(minutes) {
-  if (!minutes || isNaN(minutes) || minutes <= 0) return "0m";
+function formatServerTime(seconds) {
+  const total = Number(seconds);
+  if (!total || isNaN(total) || total <= 0) return "0m";
 
-  const totalMins = parseInt(minutes);
-  const days = Math.floor(totalMins / 1440);
-  const hours = Math.floor((totalMins % 1440) / 60);
-  const mins = totalMins % 60;
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
 
-  let str = "";
-  if (days > 0) str += `${days}d `;
-  if (hours > 0 || days > 0) str += `${hours}h `;
-  str += `${mins}m`;
-
-  return str.trim();
+  let result = "";
+  if (days > 0) result += `${days}d `;
+  if (hours > 0) result += `${hours}h `;
+  if (minutes > 0) result += `${minutes}m`;
+  return result.trim() || "0m";
 }
+
 
 module.exports = {
   ...module.exports,
