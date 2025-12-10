@@ -7,7 +7,6 @@ const {
   PermissionFlagsBits,
   MessageFlags,
   ChannelType,
-  EmbedBuilder,
 } = require("discord.js");
 const dotenv = require("dotenv");
 dotenv.config({ quiet: true });
@@ -23,13 +22,13 @@ const {
 } = require("./mainUtils.js");
 const { autoResponses } = require("./autoResponses.js");
 
-const {
-  getFullPlayerProfile,
-} = require("./steamUtils.js");
+// New imports
+const { getFullPlayerProfile } = require("./steamUtils.js");
 const {
   collectSteamIdsFromAnswers,
   splitReporterAndTargets,
-  buildSteamSummaryFields,
+  buildReporterField,
+  buildTargetFields,
   buildAdminSteamEmbed,
 } = require("./reportUtils.js");
 
@@ -60,6 +59,7 @@ async function createTicket(
   };
 
   const ticketOpenEmbed = await configEmbed("ticketOpenEmbed", defaultValues);
+
   ticketOpenEmbed.setDescription(embedDescription);
   ticketOpenEmbed.setColor(category.color || "#2FF200");
   ticketOpenEmbed.setAuthor({
@@ -67,61 +67,88 @@ async function createTicket(
     iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
   });
 
-  // --------------------------------------------------------------------------
-  // Capture raw modal answers so we can parse Steam IDs
-  // --------------------------------------------------------------------------
-  const modalAnswers = [];
-  if (withModal) {
-    for (let i = 0; i < category.questions.length; i++) {
-      const question = category.questions[i];
-      const { label } = question;
-      let rawValue = interaction.fields.getTextInputValue(`question${i + 1}`);
+const modalAnswers = [];
+if (withModal) {
+  for (
+    let questionIndex = 0;
+    questionIndex < category.questions.length;
+    questionIndex++
+  ) {
+    const question = category.questions[questionIndex];
+    const { label } = question;
+    let rawValue = interaction.fields.getTextInputValue(
+      `question${questionIndex + 1}`,
+    );
 
-      modalAnswers.push({ label, value: rawValue });
+    // Always store raw text for Steam parsing
+    modalAnswers.push({
+      label,
+      value: rawValue,
+    });
 
-      if (config.autoResponses.enabled) {
-        const autoResponse = await autoResponses(rawValue, interaction.member);
-        if (autoResponse !== null) {
-          automatedResponses.push(...autoResponse.matches);
-        }
-      }
-
-      let displayValue = category?.useCodeBlocks
-        ? `\`\`\`${rawValue}\`\`\``
-        : `>>> ${rawValue}`;
-
-      ticketOpenEmbed.addFields({
-        name: `${label}`,
-        value: displayValue,
-      });
+    // If answer is blank, don't display it in the embed
+    if (!rawValue || !rawValue.trim() || rawValue.trim().length === 0) {
+      continue;
     }
-  }
 
-  // --------------------------------------------------------------------------
-  // Add Working Hours if enabled
-  // --------------------------------------------------------------------------
+    // Auto responses (only if non-empty)
+    if (config.autoResponses.enabled) {
+      const autoResponse = await autoResponses(rawValue, interaction.member);
+      if (autoResponse !== null) {
+        automatedResponses.push(...autoResponse.matches);
+      }
+    }
+
+    // Format for embed
+    let valueToShow = rawValue;
+    if (category?.useCodeBlocks) {
+      valueToShow = `\`\`\`${valueToShow}\`\`\``;
+    } else {
+      valueToShow = `>>> ${valueToShow}`;
+    }
+
+    // Add to ticket embed only if not empty
+    ticketOpenEmbed.addFields({
+      name: `${label}`,
+      value: valueToShow,
+    });
+  }
+}
+
+  // Working hours field
   if (config.workingHours.enabled && config.workingHours.addField) {
     let workingHoursText = "";
     if (config.workingHours.valueDays === "ALL") {
-      const currentDay = timeObject.userCurrentTime.format("dddd").toLowerCase();
+      const currentDay = timeObject.userCurrentTime
+        .format("dddd")
+        .toLowerCase();
       for (const day in timeObject.workingHours) {
         const { min, max } = timeObject.workingHours[day];
         const isCurrentDay = day === currentDay;
         const dayText = isCurrentDay
           ? `**${day.charAt(0).toUpperCase() + day.slice(1)}**`
           : day.charAt(0).toUpperCase() + day.slice(1);
-
         let openTime = min || config.workingHours.default.min;
         let closeTime = max || config.workingHours.default.max;
 
-        const opening = timeObject.userCurrentTime.clone().startOf("day")
-          .set({ hour: openTime.split(":")[0], minute: openTime.split(":")[1] });
+        const openTimeToday = timeObject.userCurrentTime
+          .clone()
+          .startOf("day")
+          .set({
+            hour: openTime.split(":")[0],
+            minute: openTime.split(":")[1],
+          });
 
-        const closing = timeObject.userCurrentTime.clone().startOf("day")
-          .set({ hour: closeTime.split(":")[0], minute: closeTime.split(":")[1] });
+        const closeTimeToday = timeObject.userCurrentTime
+          .clone()
+          .startOf("day")
+          .set({
+            hour: closeTime.split(":")[0],
+            minute: closeTime.split(":")[1],
+          });
 
-        const openingTimestamp = `<t:${opening.unix()}:t>`;
-        const closingTimestamp = `<t:${closing.unix()}:t>`;
+        const openingTimestamp = `<t:${openTimeToday.unix()}:t>`;
+        const closingTimestamp = `<t:${closeTimeToday.unix()}:t>`;
 
         const workingHoursField = config.workingHours.fieldValue
           ? `${config.workingHours.fieldValue}\n`
@@ -132,10 +159,21 @@ async function createTicket(
           .replace(/\{closingTime\}/g, closingTimestamp);
       }
     } else if (config.workingHours.valueDays === "TODAY") {
-      workingHoursText += `${config.workingHours.fieldValue || "> {day}: {openingTime} to {closingTime}"}`
-        .replace(/\{day\}/g, timeObject.dayToday.charAt(0).toUpperCase() + timeObject.dayToday.slice(1))
-        .replace(/\{openingTime\}/g, `<t:${timeObject.openingTimeToday.unix()}:t>`)
-        .replace(/\{closingTime\}/g, `<t:${timeObject.closingTimeToday.unix()}:t>`);
+      workingHoursText +=
+        `${config.workingHours.fieldValue || "> {day}: {openingTime} to {closingTime}"}`
+          .replace(
+            /\{day\}/g,
+            timeObject.dayToday.charAt(0).toUpperCase() +
+              timeObject.dayToday.slice(1),
+          )
+          .replace(
+            /\{openingTime\}/g,
+            `<t:${timeObject.openingTimeToday.unix()}:t>`,
+          )
+          .replace(
+            /\{closingTime\}/g,
+            `<t:${timeObject.closingTimeToday.unix()}:t>`,
+          );
     }
     ticketOpenEmbed.addFields({
       name: config.workingHours.fieldTitle || "Working Hours",
@@ -143,12 +181,11 @@ async function createTicket(
     });
   }
 
-  // --------------------------------------------------------------------------
-  // Buttons
-  // --------------------------------------------------------------------------
+  // Buttons / menu
   let answerRow = new ActionRowBuilder();
   if (config.ticketOpenEmbed.useMenu) {
     const options = [];
+
     const closeOption = new StringSelectMenuOptionBuilder()
       .setLabel(config.closeButton.label)
       .setDescription(config.ticketOpenEmbed.closeDescription)
@@ -167,7 +204,9 @@ async function createTicket(
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId("ticketOpenMenu")
-      .setPlaceholder(config.ticketOpenEmbed.menuPlaceholder || "Select an option")
+      .setPlaceholder(
+        config.ticketOpenEmbed.menuPlaceholder || "Select an option",
+      )
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(options);
@@ -183,6 +222,7 @@ async function createTicket(
       .setLabel(config.closeButton.label)
       .setEmoji(config.closeButton.emoji)
       .setStyle(ButtonStyle[config.closeButton.style]);
+
     answerRow.addComponents(closeButton);
 
     if (config.claimFeature) {
@@ -191,20 +231,17 @@ async function createTicket(
         .setLabel(config.claimButton.label)
         .setEmoji(config.claimButton.emoji)
         .setStyle(ButtonStyle[config.claimButton.style]);
+
       answerRow.addComponents(claimButton);
     }
   }
 
-  // --------------------------------------------------------------------------
-  // Start creation of ticket channel
-  // --------------------------------------------------------------------------
   try {
     const TICKETCOUNT = await mainDB.get("totalTickets");
     const USERNAME = interaction.user.username;
     const configValue = category.ticketName;
     const categoryIDs = category.categoryID;
     const selectedCategoryID = await findAvailableCategory(categoryIDs);
-
     const ticketCreatorPerms = category?.permissions?.ticketCreator;
     const allowedCreatorPerms = ticketCreatorPerms?.open?.allow || [
       "ViewChannel",
@@ -214,9 +251,12 @@ async function createTicket(
       "ReadMessageHistory",
     ];
     const deniedCreatorPerms = ticketCreatorPerms?.open?.deny || [];
-    const openAllowCreator = allowedCreatorPerms.map(p => PermissionFlagsBits[p]);
-    const openDenyCreator = deniedCreatorPerms.map(p => PermissionFlagsBits[p]);
-
+    const openAllowCreator = allowedCreatorPerms.map(
+      (permission) => PermissionFlagsBits[permission],
+    );
+    const openDenyCreator = deniedCreatorPerms.map(
+      (permission) => PermissionFlagsBits[permission],
+    );
     const rolesPerms = category?.permissions?.supportRoles;
     const allowedRolePerms = rolesPerms?.open?.allow || [
       "ViewChannel",
@@ -226,8 +266,12 @@ async function createTicket(
       "ReadMessageHistory",
     ];
     const deniedRolePerms = rolesPerms?.open?.deny || [];
-    const openAllowRoles = allowedRolePerms.map(p => PermissionFlagsBits[p]);
-    const openDenyRoles = deniedRolePerms.map(p => PermissionFlagsBits[p]);
+    const openAllowRoles = allowedRolePerms.map(
+      (permission) => PermissionFlagsBits[permission],
+    );
+    const openDenyRoles = deniedRolePerms.map(
+      (permission) => PermissionFlagsBits[permission],
+    );
 
     let channelName;
     switch (configValue.toLowerCase()) {
@@ -251,10 +295,14 @@ async function createTicket(
         break;
       default:
         channelName = `${category.name}-${TICKETCOUNT}`;
-        console.log(`WARNING: Invalid category ticketName config: ${configValue}`);
+        console.log(
+          `WARNING: Invalid category ticketName configuration value: ${configValue}, falling back to category-ticketcount as the value.`,
+        );
     }
     const nameEmoji = category.nameEmoji ?? "";
-    if (nameEmoji !== "") channelName = `${nameEmoji}${channelName}`;
+    if (nameEmoji !== "") {
+      channelName = `${nameEmoji}${channelName}`;
+    }
 
     await interaction.guild.channels
       .create({
@@ -286,17 +334,16 @@ async function createTicket(
               PermissionFlagsBits.ReadMessageHistory,
             ],
           },
-          ...category.support_role_ids.map(id => ({
-            id,
+          ...category.support_role_ids.map((roleId) => ({
+            id: roleId,
             allow: openAllowRoles,
             deny: openDenyRoles,
           })),
         ],
       })
       .then(async (channel) => {
-
         // ------------------------------------------------------------------
-        // Inject Steam Stats & Report Logic (NEW)
+        // Steam / Enardo stats + report logic based on CHANNEL NAME
         // ------------------------------------------------------------------
         const channelNameLower = channel.name.toLowerCase();
         const skipSteam = channelNameLower.includes("discord");
@@ -308,34 +355,49 @@ async function createTicket(
         if (!skipSteam && modalAnswers.length > 0) {
           try {
             const allIds = collectSteamIdsFromAnswers(modalAnswers);
-            const { reporterId, targetIds } = splitReporterAndTargets(allIds, isReportChannel);
+            const { reporterId, targetIds } = splitReporterAndTargets(
+              allIds,
+              isReportChannel,
+            );
 
             if (reporterId) {
               reporterProfile = await getFullPlayerProfile(reporterId);
             }
 
-            if (isReportChannel && targetIds?.length > 0) {
+            if (isReportChannel && targetIds && targetIds.length > 0) {
               const limitedTargets = targetIds.slice(0, 5);
-              for (const t of limitedTargets) {
-                const prof = await getFullPlayerProfile(t);
-                if (prof) targetsProfiles.push(prof);
+              for (const tId of limitedTargets) {
+                const profile = await getFullPlayerProfile(tId);
+                if (profile) {
+                  targetsProfiles.push(profile);
+                }
               }
             }
 
-            const steamFields = buildSteamSummaryFields(
+            // Add user-visible fields to the ticket embed
+            const reporterField = buildReporterField(
               reporterProfile,
-              targetsProfiles,
               isReportChannel,
             );
-            if (steamFields.length > 0) ticketOpenEmbed.addFields(steamFields);
+            const targetFields = buildTargetFields(targetsProfiles);
 
+            const fields = [];
+            if (reporterField) fields.push(reporterField);
+            if (targetFields.length > 0) fields.push(...targetFields);
+
+            if (fields.length > 0) {
+              ticketOpenEmbed.addFields(fields);
+            }
           } catch (err) {
-            console.error("[Ticket] Steam/Enardo Stats Error:", err);
+            console.error(
+              "[Ticket] Error while fetching Steam/Enardo stats:",
+              err,
+            );
           }
         }
 
         // ------------------------------------------------------------------
-        // Continue your existing send logic
+        // Existing logic: send message in ticket channel
         // ------------------------------------------------------------------
         let textContent =
           category.textContent !== undefined
@@ -344,28 +406,31 @@ async function createTicket(
         textContent = textContent
           .replace(/\{user\}/g, interaction.user)
           .replace(/\{user\.tag\}/g, sanitizeInput(interaction.user.tag));
-
         const pingRoles =
           category.pingRoles && category.ping_role_ids.length > 0;
         if (pingRoles) {
           const rolesToMention = category.ping_role_ids
-            .map((id) => `<@&${id}>`)
+            .map((roleId) => `<@&${roleId}>`)
             .join(" ");
-          textContent = textContent.replace(/\{support-roles\}/g, rolesToMention);
+          textContent = textContent.replace(
+            /\{support-roles\}/g,
+            rolesToMention,
+          );
         }
 
-        await channel.send({
-          content: textContent,
-          embeds: [ticketOpenEmbed],
-          components: [answerRow],
-          fetchReply: true,
-        })
+        await channel
+          .send({
+            content: textContent,
+            embeds: [ticketOpenEmbed],
+            components: [answerRow],
+            fetchReply: true,
+          })
           .then(async (message) => {
-
             const defaultValues = {
               color: "#2FF200",
               title: "Ticket Created!",
-              description: "Your new ticket ({channel}) has been created, **{user}**!",
+              description:
+                "Your new ticket ({channel}) has been created, **{user}**!",
               timestamp: true,
               footer: {
                 text: `${interaction.user.tag}`,
@@ -373,15 +438,21 @@ async function createTicket(
               },
             };
 
-            const newTicketEmbed = await configEmbed("newTicketEmbed", defaultValues);
-            if (newTicketEmbed.data?.description) {
+            const newTicketEmbed = await configEmbed(
+              "newTicketEmbed",
+              defaultValues,
+            );
+
+            if (newTicketEmbed.data && newTicketEmbed.data.description) {
               newTicketEmbed.setDescription(
                 newTicketEmbed.data.description
                   .replace(/\{channel\}/g, `<#${channel.id}>`)
-                  .replace(/\{user\}/g, `${sanitizeInput(interaction.user.username)}`),
+                  .replace(
+                    /\{user\}/g,
+                    `${sanitizeInput(interaction.user.username)}`,
+                  ),
               );
             }
-
             const actionRow4 = new ActionRowBuilder().addComponents(
               new ButtonBuilder()
                 .setStyle(ButtonStyle.Link)
@@ -389,7 +460,6 @@ async function createTicket(
                 .setLabel(config.newTicketButton.label)
                 .setEmoji(config.newTicketButton.emoji),
             );
-
             await interaction.editReply({
               embeds: [newTicketEmbed],
               components: [actionRow4],
@@ -407,7 +477,7 @@ async function createTicket(
               claimUser: "",
               status: "Open",
               closeUserID: "",
-              creationTime,
+              creationTime: creationTime,
               addedUsers: [],
               addedRoles: [],
               closedAt: 0,
@@ -427,10 +497,15 @@ async function createTicket(
               },
             };
 
-            const logTicketOpenEmbed = await configEmbed("logTicketOpenEmbed", logDefaultValues);
+            const logTicketOpenEmbed = await configEmbed(
+              "logTicketOpenEmbed",
+              logDefaultValues,
+            );
+
             logTicketOpenEmbed.addFields([
               {
-                name: config.logTicketOpenEmbed.field_creator || "• Ticket Creator",
+                name:
+                  config.logTicketOpenEmbed.field_creator || "• Ticket Creator",
                 value: `> <@!${interaction.user.id}>\n> ${sanitizeInput(interaction.user.tag)}`,
               },
               {
@@ -438,7 +513,8 @@ async function createTicket(
                 value: `> #${sanitizeInput(channel.name)}`,
               },
               {
-                name: config.logTicketOpenEmbed.field_creation || "• Creation Time",
+                name:
+                  config.logTicketOpenEmbed.field_creation || "• Creation Time",
                 value: `> <t:${creationTime}:F>`,
               },
             ]);
@@ -447,20 +523,22 @@ async function createTicket(
             let logChannel = await getChannel(logChannelId);
             if (config.toggleLogs.ticketCreate) {
               try {
-                await logChannel.send({ embeds: [logTicketOpenEmbed] });
+                await logChannel.send({
+                  embeds: [logTicketOpenEmbed],
+                });
               } catch (error) {
-                error.errorContext = `[Logging Error]: check default log channel config`;
+                error.errorContext =
+                  "[Logging Error]: please make sure to at least configure your default log channel";
                 client.emit("error", error);
               }
             }
 
-            // --------------------------------------------------------------
-            // Send Admin Steam Overview Embed (NEW)
-            // --------------------------------------------------------------
+            // Admin-only Steam overview embed
             try {
               if (
-                (reporterProfile || targetsProfiles.length > 0)
-                && config.toggleLogs.ticketCreate
+                (reporterProfile || targetsProfiles.length > 0) &&
+                config.toggleLogs.ticketCreate &&
+                logChannel
               ) {
                 const adminSteamEmbed = buildAdminSteamEmbed(
                   interaction,
@@ -469,20 +547,31 @@ async function createTicket(
                   targetsProfiles,
                   isReportChannel,
                 );
-                if (adminSteamEmbed && logChannel) {
+                if (adminSteamEmbed) {
                   await logChannel.send({ embeds: [adminSteamEmbed] });
                 }
               }
             } catch (err) {
-              console.error("[Ticket] Failed sending admin Steam embed:", err);
+              console.error(
+                "[Ticket] Failed to send admin Steam overview embed:",
+                err,
+              );
             }
 
-            await logMessage(`${interaction.user.tag} created the ticket #${channel.name}`);
+            await logMessage(
+              `${interaction.user.tag} created the ticket #${channel.name}`,
+            );
 
             await message.pin().then(async () => {
-              const fetchedMessages = await message.channel.messages.fetch({ limit: 10 });
-              const systemMessage = fetchedMessages.find(msg => msg.system === true);
-              if (systemMessage) await systemMessage.delete();
+              const fetchedMessages = await message.channel.messages.fetch({
+                limit: 10,
+              });
+              const systemMessage = fetchedMessages.find(
+                (msg) => msg.system === true,
+              );
+              if (systemMessage) {
+                await systemMessage.delete();
+              }
             });
 
             if (automatedResponses.length > 0) {
@@ -497,41 +586,62 @@ async function createTicket(
                 },
               };
 
-              const autoResponsesEmbed = await configEmbed("autoResponsesEmbed", defaultValues);
-              if (autoResponsesEmbed.data?.description) {
+              const autoResponsesEmbed = await configEmbed(
+                "autoResponsesEmbed",
+                defaultValues,
+              );
+
+              if (
+                autoResponsesEmbed.data &&
+                autoResponsesEmbed.data.description
+              ) {
                 autoResponsesEmbed.setDescription(
                   automatedResponses
-                    .map(r => autoResponsesEmbed.data.description
-                      .replace(/\{question\}/g, r.question)
-                      .replace(/\{answer\}/g, r.answer))
+                    .map((response) =>
+                      autoResponsesEmbed.data.description
+                        .replace(/\{question\}/g, response.question)
+                        .replace(/\{answer\}/g, response.answer),
+                    )
                     .join(""),
                 );
               }
 
               setTimeout(async () => {
-                await channel.send({ embeds: [autoResponsesEmbed] });
+                await channel.send({
+                  embeds: [autoResponsesEmbed],
+                });
               }, 4000);
             }
           });
 
-        await channel.send({ content: `<@${interaction.user.id}>` }).then(m => m.delete());
+        await channel
+          .send({ content: `<@${interaction.user.id}>` })
+          .then((message) => {
+            message.delete();
+          });
 
         if (pingRoles && category.ghostPingRoles) {
-          const rolesToMention = category.ping_role_ids.map(id => `<@&${id}>`).join(" ");
-          await channel.send({ content: rolesToMention }).then(m => m.delete());
+          const rolesToMention = category.ping_role_ids
+            .map((roleId) => `<@&${roleId}>`)
+            .join(" ");
+          await channel.send({ content: rolesToMention }).then((message) => {
+            message.delete();
+          });
         }
 
-        // -----------------------------------------
-        // Outside Working Hours Warning
-        // -----------------------------------------
-        if (timeRegex.test(timeObject.openingTime) && timeRegex.test(timeObject.closingTime)) {
+        if (
+          timeRegex.test(timeObject.openingTime) &&
+          timeRegex.test(timeObject.closingTime)
+        ) {
           if (
             config.workingHours.enabled &&
             !timeObject.blockTicketCreation &&
             config.workingHours.outsideWarning
           ) {
             if (
-              timeObject.userCurrentTime.isBefore(timeObject.openingTimeToday) ||
+              timeObject.userCurrentTime.isBefore(
+                timeObject.openingTimeToday,
+              ) ||
               timeObject.userCurrentTime.isAfter(timeObject.closingTimeToday)
             ) {
               const defaultValues = {
@@ -542,18 +652,31 @@ async function createTicket(
                 timestamp: true,
               };
 
-              const outsideWorkingHoursEmbed = await configEmbed("outsideWorkingHoursEmbed", defaultValues);
+              const outsideWorkingHoursEmbed = await configEmbed(
+                "outsideWorkingHoursEmbed",
+                defaultValues,
+              );
 
-              if (outsideWorkingHoursEmbed.data?.description) {
+              if (
+                outsideWorkingHoursEmbed.data &&
+                outsideWorkingHoursEmbed.data.description
+              ) {
                 outsideWorkingHoursEmbed.setDescription(
                   outsideWorkingHoursEmbed.data.description
-                    .replace(/\{openingTime\}/g, `<t:${timeObject.openingTimeToday.unix()}:t>`)
-                    .replace(/\{closingTime\}/g, `<t:${timeObject.closingTimeToday.unix()}:t>`),
+                    .replace(
+                      /\{openingTime\}/g,
+                      `<t:${timeObject.openingTimeToday.unix()}:t>`,
+                    )
+                    .replace(
+                      /\{closingTime\}/g,
+                      `<t:${timeObject.closingTimeToday.unix()}:t>`,
+                    ),
                 );
               }
-
               setTimeout(async () => {
-                await channel.send({ embeds: [outsideWorkingHoursEmbed] });
+                await channel.send({
+                  embeds: [outsideWorkingHoursEmbed],
+                });
               }, 3000);
             }
           }
@@ -561,7 +684,6 @@ async function createTicket(
       });
 
     await mainDB.add("totalTickets", 1);
-
   } catch (error) {
     console.error("Error creating ticket:", error);
     return null;
