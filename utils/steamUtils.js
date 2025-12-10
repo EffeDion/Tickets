@@ -248,6 +248,28 @@ function formatDaysAgo(days) {
   return `${years} year${years === 1 ? "" : "s"} ago`;
 }
 
+function formatServerTime(minutes) {
+  if (!minutes || isNaN(minutes) || minutes <= 0) return "0m";
+
+  const totalMins = parseInt(minutes);
+  const days = Math.floor(totalMins / 1440);
+  const hours = Math.floor((totalMins % 1440) / 60);
+  const mins = totalMins % 60;
+
+  let str = "";
+  if (days > 0) str += `${days}d `;
+  if (hours > 0 || days > 0) str += `${hours}h `;
+  str += `${mins}m`;
+
+  return str.trim();
+}
+
+module.exports = {
+  ...module.exports,
+  formatServerTime,
+};
+
+
 module.exports = {
   extractSteamIdsFromText,
   getFullPlayerProfile,

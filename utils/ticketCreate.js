@@ -107,9 +107,17 @@ if (withModal) {
       valueToShow = `>>> ${valueToShow}`;
     }
 
+    // Ensure duplicate labels do not overwrite each other visually
+    let finalLabel = label;
+    let counter = 2;
+    while (ticketOpenEmbed.data.fields?.some(f => f.name === finalLabel)) {
+      finalLabel = `${label} (${counter})`;
+      counter++;
+    }
+
     // Add to ticket embed only if not empty
     ticketOpenEmbed.addFields({
-      name: `${label}`,
+      name: finalLabel,
       value: valueToShow,
     });
   }
@@ -360,33 +368,40 @@ if (withModal) {
               isReportChannel,
             );
 
+            // Fetch reporter info
             if (reporterId) {
               reporterProfile = await getFullPlayerProfile(reporterId);
             }
 
+            // Fetch up to 5 targets for report tickets
             if (isReportChannel && targetIds && targetIds.length > 0) {
               const limitedTargets = targetIds.slice(0, 5);
               for (const tId of limitedTargets) {
                 const profile = await getFullPlayerProfile(tId);
-                if (profile) {
-                  targetsProfiles.push(profile);
-                }
+                if (profile) targetsProfiles.push(profile);
               }
             }
 
-            // Add user-visible fields to the ticket embed
-            const reporterField = buildReporterField(
-              reporterProfile,
-              isReportChannel,
-            );
+            // Add fields to the embed
+            const { buildSeparator } = require("./reportUtils.js");
+
+            // Reporter / Information section
+            if (reporterProfile) {
+              if (isReportChannel) {
+                ticketOpenEmbed.addFields(buildSeparator("Reporter"));
+              } else {
+                ticketOpenEmbed.addFields(buildSeparator("Information"));
+              }
+              ticketOpenEmbed.addFields(
+                buildReporterField(reporterProfile, isReportChannel),
+              );
+            }
+
+            // Targets section (only in report tickets)
             const targetFields = buildTargetFields(targetsProfiles);
-
-            const fields = [];
-            if (reporterField) fields.push(reporterField);
-            if (targetFields.length > 0) fields.push(...targetFields);
-
-            if (fields.length > 0) {
-              ticketOpenEmbed.addFields(fields);
+            if (isReportChannel && targetFields.length > 0) {
+              ticketOpenEmbed.addFields(buildSeparator("Targets"));
+              ticketOpenEmbed.addFields(...targetFields);
             }
           } catch (err) {
             console.error(

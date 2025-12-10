@@ -2,8 +2,7 @@ const { EmbedBuilder } = require("discord.js");
 const { extractSteamIdsFromText, formatDaysAgo } = require("./steamUtils.js");
 
 /**
- * Build list of Steam ID candidates from modal answers.
- * modalAnswers: [{ label, value }]
+ * Extract Steam IDs from answers
  */
 function collectSteamIdsFromAnswers(modalAnswers) {
   if (!Array.isArray(modalAnswers)) return [];
@@ -11,14 +10,11 @@ function collectSteamIdsFromAnswers(modalAnswers) {
     .map((q) => (typeof q.value === "string" ? q.value : ""))
     .join("\n");
 
-  const ids = extractSteamIdsFromText(allText);
-  return ids;
+  return extractSteamIdsFromText(allText);
 }
 
 /**
- * Decide reporter vs targets based on collected IDs and ticket type.
- * - For report channels: first = reporter, rest = targets
- * - For other channels: first = "steam for this ticket", no targets
+ * Resolve Reporter vs Targets
  */
 function splitReporterAndTargets(allIds, isReportChannel) {
   if (!allIds || allIds.length === 0) {
@@ -36,40 +32,41 @@ function splitReporterAndTargets(allIds, isReportChannel) {
 }
 
 /**
- * Format PvP line according to your spec:
- * - If no data: "PvP Stats: No PvP data logged"
- * - Else: "PvP Stats: K: <kills> | D: <deaths> | K/D: <ratio>"
+ * PvP Stats: "K | D | K/D"
  */
 function buildPvpLine(profile) {
   const pvp = profile?.enardoStats?.pvp;
+
   if (!pvp) {
-    return "PvP Stats: No PvP data logged";
+    return `PvP: No PvP data logged`;
   }
 
-  const kills = pvp.kills ?? 0;
-  const deaths = pvp.deaths ?? 0;
+  const kills = pvp?.kills ?? 0;
+  const deaths = pvp?.deaths ?? 0;
 
-  if (!kills && !deaths) {
-    return "PvP Stats: No PvP data logged";
+  let kdr = "N/A";
+  if (kills > 0 && deaths > 0) {
+    kdr = (kills / deaths).toFixed(2);
+  } else if (kills > 0 && deaths === 0) {
+    kdr = kills.toFixed(2);
   }
 
-  let kd;
-  if (typeof pvp.kd === "number") {
-    kd = pvp.kd;
-  } else if (deaths > 0) {
-    kd = kills / deaths;
-  } else {
-    // deaths = 0 but kills > 0 - treat KD as kills
-    kd = kills;
-  }
-
-  const kdStr = kd != null ? kd.toFixed(2) : "N/A";
-  return `PvP Stats: K: ${kills} | D: ${deaths} | K/D: ${kdStr}`;
+  return `Stats: K: ${kills} | D: ${deaths} | K/D: ${kdr}`;
 }
 
 /**
- * Build ban info line.
- * If any bans, also append time since last ban if known.
+ * Visual Separator Headers
+ */
+function buildSeparator(title) {
+  return {
+    name: `===== ${title.toUpperCase()} =====`,
+    value: "\u200B",
+    inline: false,
+  };
+}
+
+/**
+ * Ban line with time since ban
  */
 function buildBanLine(profile) {
   const vac = profile?.vacBans ?? 0;
@@ -82,87 +79,91 @@ function buildBanLine(profile) {
 
   const base = `Bans: VAC: ${vac}, Game: ${game}`;
   const since = formatDaysAgo(days);
-  if (since) {
-    return `${base} (last ban ${since})`;
-  }
-  return base;
+  return since ? `${base} (last ban ${since})` : base;
 }
 
 /**
- * Build a single field for the reporter.
- * isReportChannel controls the header text.
+ * Reporter block (shown under ===== REPORTER or ===== INFORMATION)
  */
-function buildReporterField(profile, isReportChannel) {
+function buildReporterField(profile) {
   if (!profile) return null;
 
-  const header = isReportChannel ? "Reporter Steam Info" : "Steam Information";
+  const { formatServerTime } = require("./steamUtils.js");
+  const serverTime = profile?.enardoStats?.misc?.time_played;
 
-  const rustHours =
-    profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
-  const pvpLine = buildPvpLine(profile);
-  const banLine = buildBanLine(profile);
+  let rustPlaytime;
+  if (profile.rustHours === 0 && serverTime > 0) {
+    rustPlaytime = "Private / Not Visible";
+  } else {
+    rustPlaytime =
+      profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+  }
 
   let value = "";
   value += `Steam: ${profile.steamName}\n`;
   value += `SteamID64: \`${profile.steamId}\`\n`;
-  value += `Rust Hours: ${rustHours}\n`;
-  value += `${pvpLine}\n`;
-  value += `${banLine}\n`;
+  value += `Rust Playtime: ${rustPlaytime}\n`;
+
+  if (serverTime && serverTime > 0) {
+    value += `Server Playtime: ${formatServerTime(serverTime)}\n`;
+  }
+
+  value += `${buildPvpLine(profile)}\n`;
+  value += `${buildBanLine(profile)}\n`;
   value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
-  return {
-    name: header,
-    value,
-    inline: false,
-  };
+  return { name: "\u200B", value, inline: false };
 }
 
 /**
- * Build fields for all targets.
+ * Target blocks under ===== TARGETS =====
  */
 function buildTargetFields(targetProfiles) {
-  if (!Array.isArray(targetProfiles) || targetProfiles.length === 0) {
-    return [];
-  }
+  if (!Array.isArray(targetProfiles) || targetProfiles.length === 0) return [];
 
+  const { formatServerTime } = require("./steamUtils.js");
   const fields = [];
 
   targetProfiles.forEach((profile, idx) => {
     if (!profile) return;
-    const header = `Target #${idx + 1} Steam Info`;
 
-    const rustHours =
-      profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
-    const pvpLine = buildPvpLine(profile);
-    const banLine = buildBanLine(profile);
+    const serverTime = profile?.enardoStats?.misc?.time_played;
+    let rustPlaytime;
+    if (profile.rustHours === 0 && serverTime > 0) {
+      rustPlaytime = "Private / Not Visible";
+    } else {
+      rustPlaytime =
+        profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+    }
 
     let value = "";
+    value += `Target ${idx + 1}\n`;
     value += `Steam: ${profile.steamName}\n`;
     value += `SteamID64: \`${profile.steamId}\`\n`;
-    value += `Rust Hours: ${rustHours}\n`;
-    value += `${pvpLine}\n`;
-    value += `${banLine}\n`;
+    value += `Rust Playtime: ${rustPlaytime}\n`;
+
+    if (serverTime && serverTime > 0) {
+      value += `Server Playtime: ${formatServerTime(serverTime)}\n`;
+    }
+
+    value += `${buildPvpLine(profile)}\n`;
+    value += `${buildBanLine(profile)}\n`;
     value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
-    fields.push({
-      name: header,
-      value,
-      inline: false,
-    });
+    fields.push({ name: "\u200B", value, inline: false });
   });
 
   return fields;
 }
 
 /**
- * Admin-only embed with the same info.
+ * Admin overview embed (unchanged layout)
  */
 function buildAdminSteamEmbed(
   interaction,
   channel,
   reporterProfile,
   targetsProfiles,
-  isReportChannel,
 ) {
   if (!reporterProfile && (!targetsProfiles || targetsProfiles.length === 0)) {
     return null;
@@ -180,7 +181,7 @@ function buildAdminSteamEmbed(
       iconURL: interaction.user.displayAvatarURL({ extension: "png" }),
     });
 
-  const reporterField = buildReporterField(reporterProfile, isReportChannel);
+  const reporterField = buildReporterField(reporterProfile);
   if (reporterField) embed.addFields(reporterField);
 
   const targetFields = buildTargetFields(targetsProfiles || []);
@@ -195,4 +196,5 @@ module.exports = {
   buildReporterField,
   buildTargetFields,
   buildAdminSteamEmbed,
+  buildSeparator,
 };
