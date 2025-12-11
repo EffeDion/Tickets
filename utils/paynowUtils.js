@@ -538,7 +538,7 @@ function shouldExcludeFromExpired(item) {
  * Recently Expired
  * • ...
  */
-function buildInventoryFieldsFromItems(activeItems, expiredItems) {
+function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   const fields = [];
 
   // ACTIVE
@@ -574,6 +574,15 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
       inline: false,
     });
   }
+
+  // Add clickable PayNow link
+    if (customerId) {
+    fields.push({
+        name: "PayNow",
+        value: `[Customer Page](https://dashboard.paynow.gg/customers/${customerId})`,
+        inline: false,
+    });
+    }
 
   return fields;
 }
