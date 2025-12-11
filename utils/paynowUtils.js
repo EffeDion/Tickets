@@ -461,6 +461,23 @@ function formatExpiredLine(item) {
   return `${line} — ${capitalizedExpiry}`;
 }
 
+function shouldExcludeFromExpired(item) {
+  const slug = getProductSlugFromItem(item);
+  const parsed = parseProductSlug(slug);
+
+  // Exclude credits, tags, namecolor
+  if (parsed.kind === "credits") return true;
+  if (parsed.kind === "tag") return true;
+  if (parsed.kind === "namecolor") return true;
+
+  // Exclude Permanent runtime
+  if (parsed.runtimeText && parsed.runtimeText.toLowerCase() === "permanent") {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Build embed fields for the INVENTORY section:
  *
@@ -484,19 +501,16 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
   }
 
   // RECENTLY EXPIRED (limit)
-  let expiredToShow = Array.isArray(expiredItems) ? expiredItems : [];
-  if (expiredToShow.length > MAX_EXPIRED_ITEMS) {
-    expiredToShow = expiredToShow.slice(0, MAX_EXPIRED_ITEMS);
-  }
+    let expiredToShow = Array.isArray(expiredItems) ? expiredItems : [];
 
-  if (expiredToShow.length > 0) {
-    const lines = expiredToShow.map((item) => formatExpiredLine(item));
-    fields.push({
-      name: "Recently Expired",
-      value: lines.join("\n"),
-      inline: false,
-    });
-  }
+    if (expiredToShow.length > 0) {
+        const lines = expiredToShow.map((item) => formatExpiredLine(item));
+        fields.push({
+        name: "Recently Expired",
+        value: lines.join("\n"),
+        inline: false,
+        });
+    }
 
   if (fields.length === 0) {
     fields.push({
