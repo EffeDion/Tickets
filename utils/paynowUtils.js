@@ -401,6 +401,57 @@ function splitActiveAndExpired(items) {
 // INVENTORY EMBED FIELD BUILDERS
 // -------------------------------------------------------------------
 
+// -------------------------------------------------------------------
+// INVENTORY EMBED FIELD BUILDERS
+// -------------------------------------------------------------------
+
+/**
+ * Discord embed fields cannot exceed 1024 chars in value.
+ * This helper splits big lists into multiple safe-sized fields.
+ */
+function splitIntoEmbedFields(title, lines) {
+  const fields = [];
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return fields;
+  }
+
+  let current = [];
+  let currentLength = 0;
+  let index = 1;
+
+  for (const line of lines) {
+    const lineLength = line.length + 1; // newline
+
+    // If adding this line would exceed 1024 chars,
+    // push the chunk and start a new one
+    if (currentLength + lineLength > 1024) {
+      fields.push({
+        name: index === 1 ? title : `${title} (${index})`,
+        value: current.join("\n"),
+        inline: false,
+      });
+      index++;
+      current = [];
+      currentLength = 0;
+    }
+
+    current.push(line);
+    currentLength += lineLength;
+  }
+
+  // Push the final chunk
+  if (current.length > 0) {
+    fields.push({
+      name: index === 1 ? title : `${title} (${index})`,
+      value: current.join("\n"),
+      inline: false,
+    });
+  }
+
+  return fields;
+}
+
+
 /**
  * Build the inventory "line" for an active product:
  *   • Product | Server [Runtime]
@@ -490,28 +541,32 @@ function shouldExcludeFromExpired(item) {
 function buildInventoryFieldsFromItems(activeItems, expiredItems) {
   const fields = [];
 
-  // ACTIVE PRODUCTS
+  // ACTIVE
   if (Array.isArray(activeItems) && activeItems.length > 0) {
-    const lines = activeItems.map((item) => formatActiveLine(item));
-    fields.push({
-      name: "Active Products",
-      value: lines.join("\n"),
-      inline: false,
-    });
+    const activeLines = activeItems.map((item) => formatActiveLine(item));
+    fields.push(
+      ...splitIntoEmbedFields("Active Products", activeLines)
+    );
   }
 
-  // RECENTLY EXPIRED (limit)
-    let expiredToShow = Array.isArray(expiredItems) ? expiredItems : [];
+  // FILTER & LIMIT EXPIRED
+  let expiredToShow = Array.isArray(expiredItems)
+    ? expiredItems.filter(item => !shouldExcludeFromExpired(item))
+    : [];
 
-    if (expiredToShow.length > 0) {
-        const lines = expiredToShow.map((item) => formatExpiredLine(item));
-        fields.push({
-        name: "Recently Expired",
-        value: lines.join("\n"),
-        inline: false,
-        });
-    }
+  if (expiredToShow.length > MAX_EXPIRED_ITEMS) {
+    expiredToShow = expiredToShow.slice(0, MAX_EXPIRED_ITEMS);
+  }
 
+  // EXPIRED
+  if (expiredToShow.length > 0) {
+    const expiredLines = expiredToShow.map((item) => formatExpiredLine(item));
+    fields.push(
+      ...splitIntoEmbedFields("Recently Expired", expiredLines)
+    );
+  }
+
+  // No inventory at all
   if (fields.length === 0) {
     fields.push({
       name: "Inventory",
@@ -522,6 +577,7 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
 
   return fields;
 }
+
 
 // -------------------------------------------------------------------
 // PAYNOW HTTP CALLS
