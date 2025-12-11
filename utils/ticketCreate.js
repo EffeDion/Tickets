@@ -22,18 +22,27 @@ const {
 } = require("./mainUtils.js");
 const { autoResponses } = require("./autoResponses.js");
 
-// New imports
+// Steam / Enardo
 const {
   getFullPlayerProfile,
   extractSteamIdsFromText,
 } = require("./steamUtils.js");
+
+// Report / Steam embed utils
 const {
   collectSteamIdsFromAnswers,
   splitReporterAndTargets,
   buildReporterField,
   buildTargetFields,
   buildAdminSteamEmbed,
+  buildSeparator,
 } = require("./reportUtils.js");
+
+// PayNow inventory integration
+const {
+  fetchCustomerInventoryForSteam,
+  buildInventoryFieldsFromItems,
+} = require("./paynowUtils.js");
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -70,72 +79,70 @@ async function createTicket(
     iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
   });
 
-const modalAnswers = [];
-if (withModal) {
-  for (
-    let questionIndex = 0;
-    questionIndex < category.questions.length;
-    questionIndex++
-  ) {
-    const question = category.questions[questionIndex];
-    const { label } = question;
-    let rawValue = interaction.fields.getTextInputValue(
-      `question${questionIndex + 1}`,
-    );
+  const modalAnswers = [];
+  if (withModal) {
+    for (
+      let questionIndex = 0;
+      questionIndex < category.questions.length;
+      questionIndex++
+    ) {
+      const question = category.questions[questionIndex];
+      const { label } = question;
+      let rawValue = interaction.fields.getTextInputValue(
+        `question${questionIndex + 1}`,
+      );
 
-    // Always store raw text for Steam parsing
-    modalAnswers.push({
-      label,
-      value: rawValue,
-    });
+      // Always store raw text for Steam / PayNow parsing
+      modalAnswers.push({
+        label,
+        value: rawValue,
+      });
 
-    // If answer is blank, don't display it in the embed
-    if (!rawValue || !rawValue.trim() || rawValue.trim().length === 0) {
-      continue;
-    }
-
-    // Auto responses (only if non-empty)
-    if (config.autoResponses.enabled) {
-      const autoResponse = await autoResponses(rawValue, interaction.member);
-      if (autoResponse !== null) {
-        automatedResponses.push(...autoResponse.matches);
+      // If answer is blank, don't display it in the embed
+      if (!rawValue || !rawValue.trim() || rawValue.trim().length === 0) {
+        continue;
       }
-    }
 
-    // Format for embed – handle multiple SteamIDs nicely
-    const idsInAnswer = extractSteamIdsFromText(rawValue || "");
+      // Auto responses (only if non-empty)
+      if (config.autoResponses.enabled) {
+        const autoResponse = await autoResponses(rawValue, interaction.member);
+        if (autoResponse !== null) {
+          automatedResponses.push(...autoResponse.matches);
+        }
+      }
 
-    let valueToShow;
-    if (category?.useCodeBlocks) {
-      if (idsInAnswer.length > 1) {
-        // Multiple IDs → one per line in codeblock
-        valueToShow = "```" + idsInAnswer.join("\n") + "```";
+      // Format for embed – handle multiple SteamIDs nicely
+      const idsInAnswer = extractSteamIdsFromText(rawValue || "");
+
+      let valueToShow;
+      if (category?.useCodeBlocks) {
+        if (idsInAnswer.length > 1) {
+          // Multiple IDs → one per line in codeblock
+          valueToShow = "```" + idsInAnswer.join("\n") + "```";
+        } else {
+          valueToShow = "```" + rawValue + "```";
+        }
       } else {
-        valueToShow = "```" + rawValue + "```";
+        if (idsInAnswer.length > 1) {
+          // Multiple IDs → one per line, each quoted
+          valueToShow = idsInAnswer.map((id) => `>>> ${id}`).join("\n");
+        } else {
+          valueToShow = `>>> ${rawValue}`;
+        }
       }
-    } else {
-      if (idsInAnswer.length > 1) {
-        // Multiple IDs → one per line, each quoted
-        valueToShow = idsInAnswer.map((id) => `>>> ${id}`).join("\n");
-      } else {
-        valueToShow = `>>> ${rawValue}`;
-      }
-    }
 
-    ticketOpenEmbed.addFields({
-      name: `${label}`,
-      value: valueToShow,
-    });
+      ticketOpenEmbed.addFields({
+        name: `${label}`,
+        value: valueToShow,
+      });
+    }
   }
-}
 
   // Working hours field
   if (config.workingHours.enabled && config.workingHours.addField) {
     let workingHoursText = "";
     if (config.workingHours.valueDays === "ALL") {
-      const currentDay = timeObject.userCurrentTime
-        .format("dddd")
-        .toLowerCase();
+      const currentDay = timeObject.userCurrentTime.format("dddd").toLowerCase();
       for (const day in timeObject.workingHours) {
         const { min, max } = timeObject.workingHours[day];
         const isCurrentDay = day === currentDay;
@@ -173,21 +180,23 @@ if (withModal) {
           .replace(/\{closingTime\}/g, closingTimestamp);
       }
     } else if (config.workingHours.valueDays === "TODAY") {
-      workingHoursText +=
-        `${config.workingHours.fieldValue || "> {day}: {openingTime} to {closingTime}"}`
-          .replace(
-            /\{day\}/g,
-            timeObject.dayToday.charAt(0).toUpperCase() +
-              timeObject.dayToday.slice(1),
-          )
-          .replace(
-            /\{openingTime\}/g,
-            `<t:${timeObject.openingTimeToday.unix()}:t>`,
-          )
-          .replace(
-            /\{closingTime\}/g,
-            `<t:${timeObject.closingTimeToday.unix()}:t>`,
-          );
+      workingHoursText += `${
+        config.workingHours.fieldValue ||
+        "> {day}: {openingTime} to {closingTime}"
+      }`
+        .replace(
+          /\{day\}/g,
+          timeObject.dayToday.charAt(0).toUpperCase() +
+            timeObject.dayToday.slice(1),
+        )
+        .replace(
+          /\{openingTime\}/g,
+          `<t:${timeObject.openingTimeToday.unix()}:t>`,
+        )
+        .replace(
+          /\{closingTime\}/g,
+          `<t:${timeObject.closingTimeToday.unix()}:t>`,
+        );
     }
     ticketOpenEmbed.addFields({
       name: config.workingHours.fieldTitle || "Working Hours",
@@ -357,11 +366,12 @@ if (withModal) {
       })
       .then(async (channel) => {
         // ------------------------------------------------------------------
-        // Steam / Enardo stats + report logic based on CHANNEL NAME
+        // Steam / Enardo stats + report / payment logic based on CHANNEL NAME
         // ------------------------------------------------------------------
         const channelNameLower = channel.name.toLowerCase();
         const skipSteam = channelNameLower.includes("discord");
         const isReportChannel = channelNameLower.includes("report");
+        const isPaymentChannel = channelNameLower.includes("payment");
 
         let reporterProfile = null;
         let targetsProfiles = [];
@@ -388,10 +398,9 @@ if (withModal) {
               }
             }
 
-            // Add fields to the embed
-            const { buildSeparator } = require("./reportUtils.js");
-
-            // Reporter / Information section
+            // ------------------------------------------------------------------
+            // Add Steam reporter / information section
+            // ------------------------------------------------------------------
             if (reporterProfile) {
               if (isReportChannel) {
                 ticketOpenEmbed.addFields(buildSeparator("Reporter"));
@@ -401,6 +410,41 @@ if (withModal) {
               ticketOpenEmbed.addFields(
                 buildReporterField(reporterProfile, isReportChannel),
               );
+
+              // ----------------------------------------------------------------
+              // PayNow INVENTORY section (only for payment tickets)
+              // ----------------------------------------------------------------
+              if (isPaymentChannel) {
+                try {
+                  const inventory = await fetchCustomerInventoryForSteam(
+                    reporterProfile.steamId,
+                  );
+
+                  if (
+                    inventory &&
+                    (inventory.activeItems.length > 0 ||
+                      inventory.expiredItems.length > 0)
+                  ) {
+                    ticketOpenEmbed.addFields(
+                      buildSeparator("Inventory"),
+                    );
+
+                    const inventoryFields = buildInventoryFieldsFromItems(
+                      inventory.activeItems,
+                      inventory.expiredItems,
+                    );
+
+                    if (inventoryFields && inventoryFields.length > 0) {
+                      ticketOpenEmbed.addFields(...inventoryFields);
+                    }
+                  }
+                } catch (invErr) {
+                  console.error(
+                    "[Ticket] Error while fetching PayNow inventory:",
+                    invErr,
+                  );
+                }
+              }
             }
 
             // Targets section (only in report tickets)
@@ -526,7 +570,8 @@ if (withModal) {
             logTicketOpenEmbed.addFields([
               {
                 name:
-                  config.logTicketOpenEmbed.field_creator || "• Ticket Creator",
+                  config.logTicketOpenEmbed.field_creator ||
+                  "• Ticket Creator",
                 value: `> <@!${interaction.user.id}>\n> ${sanitizeInput(interaction.user.tag)}`,
               },
               {
@@ -535,12 +580,14 @@ if (withModal) {
               },
               {
                 name:
-                  config.logTicketOpenEmbed.field_creation || "• Creation Time",
+                  config.logTicketOpenEmbed.field_creation ||
+                  "• Creation Time",
                 value: `> <t:${creationTime}:F>`,
               },
             ]);
 
-            let logChannelId = config.logs.ticketCreate || config.logs.default;
+            let logChannelId =
+              config.logs.ticketCreate || config.logs.default;
             let logChannel = await getChannel(logChannelId);
             if (config.toggleLogs.ticketCreate) {
               try {
@@ -663,7 +710,9 @@ if (withModal) {
               timeObject.userCurrentTime.isBefore(
                 timeObject.openingTimeToday,
               ) ||
-              timeObject.userCurrentTime.isAfter(timeObject.closingTimeToday)
+              timeObject.userCurrentTime.isAfter(
+                timeObject.closingTimeToday,
+              )
             ) {
               const defaultValues = {
                 color: "#FF0000",
