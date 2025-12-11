@@ -82,14 +82,17 @@ function diffFromNowInDays(dateString) {
  *  - "expired 12 days ago"
  */
 function formatExpiryLabel(item, forceExpired = false) {
+  // Determine the best possible timestamp to use.
   const expiresAt =
-    item?.override_expires_at || item?.expires_at || null;
-  const expirable = item?.expirable === true;
+    item?.override_expires_at ||
+    item?.expires_at ||
+    item?.revoked_at ||
+    item?.removed_at ||
+    null;
 
-  // Non-expiring or unknown → Lifetime
-  if (!expiresAt || !expirable) {
-    if (forceExpired) return "expired";
-    return "Lifetime";
+  // If nothing available, fallback
+  if (!expiresAt) {
+    return forceExpired ? "expired (no timestamp)" : "Lifetime";
   }
 
   const diff = diffFromNowInDays(expiresAt);
@@ -103,11 +106,12 @@ function formatExpiryLabel(item, forceExpired = false) {
     return `expired ${diff.days} days ago`;
   }
 
-  // future / now
+  // Future / now
   if (diff.days === 0) return "expires today";
   if (diff.days === 1) return "expires in 1 day";
   return `expires in ${diff.days} days`;
 }
+
 
 /**
  * Basic classification of an item as active/expired using "state"
