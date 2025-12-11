@@ -28,7 +28,7 @@ const {
   extractSteamIdsFromText,
 } = require("./steamUtils.js");
 
-// Report / Steam embed utils
+// Report helpers
 const {
   collectSteamIdsFromAnswers,
   splitReporterAndTargets,
@@ -38,7 +38,7 @@ const {
   buildSeparator,
 } = require("./reportUtils.js");
 
-// PayNow inventory integration
+// PayNow inventory helpers
 const {
   fetchCustomerInventoryForSteam,
   buildInventoryFieldsFromItems,
@@ -63,10 +63,16 @@ async function createTicket(
     color: category.color || "#2FF200",
     description: embedDescription,
     timestamp: true,
-    thumbnail: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+    thumbnail: `${interaction.user.displayAvatarURL({
+      extension: "png",
+      size: 1024,
+    })}`,
     footer: {
       text: `${interaction.user.tag}`,
-      iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+      iconURL: `${interaction.user.displayAvatarURL({
+        extension: "png",
+        size: 1024,
+      })}`,
     },
   };
 
@@ -76,7 +82,10 @@ async function createTicket(
   ticketOpenEmbed.setColor(category.color || "#2FF200");
   ticketOpenEmbed.setAuthor({
     name: `${category.embedTitle}`,
-    iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+    iconURL: `${interaction.user.displayAvatarURL({
+      extension: "png",
+      size: 1024,
+    })}`,
   });
 
   const modalAnswers = [];
@@ -398,23 +407,22 @@ async function createTicket(
               }
             }
 
-            // ------------------------------------------------------------------
-            // Add Steam reporter / information section
-            // ------------------------------------------------------------------
+            // Reporter / Information section
             if (reporterProfile) {
               if (isReportChannel) {
                 ticketOpenEmbed.addFields(buildSeparator("Reporter"));
               } else {
                 ticketOpenEmbed.addFields(buildSeparator("Information"));
               }
+
               ticketOpenEmbed.addFields(
                 buildReporterField(reporterProfile, isReportChannel),
               );
 
-              // ----------------------------------------------------------------
-              // PayNow INVENTORY section (only for payment tickets)
-              // ----------------------------------------------------------------
-              if (isPaymentChannel) {
+              // ------------------------------------------------------------
+              // PayNow INVENTORY section, only for payment tickets
+              // ------------------------------------------------------------
+              if (isPaymentChannel && reporterProfile.steamId) {
                 try {
                   const inventory = await fetchCustomerInventoryForSteam(
                     reporterProfile.steamId,
@@ -425,9 +433,7 @@ async function createTicket(
                     (inventory.activeItems.length > 0 ||
                       inventory.expiredItems.length > 0)
                   ) {
-                    ticketOpenEmbed.addFields(
-                      buildSeparator("Inventory"),
-                    );
+                    ticketOpenEmbed.addFields(buildSeparator("Inventory"));
 
                     const inventoryFields = buildInventoryFieldsFromItems(
                       inventory.activeItems,
@@ -499,7 +505,10 @@ async function createTicket(
               timestamp: true,
               footer: {
                 text: `${interaction.user.tag}`,
-                iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+                iconURL: `${interaction.user.displayAvatarURL({
+                  extension: "png",
+                  size: 1024,
+                })}`,
               },
             };
 
@@ -555,10 +564,16 @@ async function createTicket(
               color: "#2FF200",
               title: "Ticket Logs | Ticket Created",
               timestamp: true,
-              thumbnail: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+              thumbnail: `${interaction.user.displayAvatarURL({
+                extension: "png",
+                size: 1024,
+              })}`,
               footer: {
                 text: `${interaction.user.tag}`,
-                iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+                iconURL: `${interaction.user.displayAvatarURL({
+                  extension: "png",
+                  size: 1024,
+                })}`,
               },
             };
 
@@ -572,7 +587,9 @@ async function createTicket(
                 name:
                   config.logTicketOpenEmbed.field_creator ||
                   "• Ticket Creator",
-                value: `> <@!${interaction.user.id}>\n> ${sanitizeInput(interaction.user.tag)}`,
+                value: `> <@!${interaction.user.id}>\n> ${sanitizeInput(
+                  interaction.user.tag,
+                )}`,
               },
               {
                 name: config.logTicketOpenEmbed.field_ticket || "• Ticket",
@@ -613,7 +630,6 @@ async function createTicket(
                   channel,
                   reporterProfile,
                   targetsProfiles,
-                  isReportChannel,
                 );
                 if (adminSteamEmbed) {
                   await logChannel.send({ embeds: [adminSteamEmbed] });
@@ -631,9 +647,10 @@ async function createTicket(
             );
 
             await message.pin().then(async () => {
-              const fetchedMessages = await message.channel.messages.fetch({
-                limit: 10,
-              });
+              const fetchedMessages =
+                await message.channel.messages.fetch({
+                  limit: 10,
+                });
               const systemMessage = fetchedMessages.find(
                 (msg) => msg.system === true,
               );
@@ -643,20 +660,26 @@ async function createTicket(
             });
 
             if (automatedResponses.length > 0) {
-              const defaultValues = {
+              const autoDefaultValues = {
                 color: category.color || "#2FF200",
                 description: "Q: {question}\nA: {answer}\n\n",
                 timestamp: true,
-                thumbnail: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+                thumbnail: `${interaction.user.displayAvatarURL({
+                  extension: "png",
+                  size: 1024,
+                })}`,
                 footer: {
                   text: `${interaction.user.tag}`,
-                  iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
+                  iconURL: `${interaction.user.displayAvatarURL({
+                    extension: "png",
+                    size: 1024,
+                  })}`,
                 },
               };
 
               const autoResponsesEmbed = await configEmbed(
                 "autoResponsesEmbed",
-                defaultValues,
+                autoDefaultValues,
               );
 
               if (
@@ -692,9 +715,11 @@ async function createTicket(
           const rolesToMention = category.ping_role_ids
             .map((roleId) => `<@&${roleId}>`)
             .join(" ");
-          await channel.send({ content: rolesToMention }).then((message) => {
-            message.delete();
-          });
+          await channel
+            .send({ content: rolesToMention })
+            .then((message) => {
+              message.delete();
+            });
         }
 
         if (
@@ -714,7 +739,7 @@ async function createTicket(
                 timeObject.closingTimeToday,
               )
             ) {
-              const defaultValues = {
+              const outsideDefaultValues = {
                 color: "#FF0000",
                 title: "Outside Working Hours",
                 description:
@@ -724,7 +749,7 @@ async function createTicket(
 
               const outsideWorkingHoursEmbed = await configEmbed(
                 "outsideWorkingHoursEmbed",
-                defaultValues,
+                outsideDefaultValues,
               );
 
               if (

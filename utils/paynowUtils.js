@@ -1,30 +1,22 @@
 // paynowUtils.js
 const axios = require("axios");
 
-/**
- * PayNow configuration
- *
- * PAYNOW_API_KEY should be in the format: "APIKey TOKEN_HERE"
- * as required by the PayNow Management API.
- * PAYNOW_STORE_ID can be set in env; falls back to your provided store ID.
- */
+// ENV + defaults
 const PAYNOW_API_KEY = process.env.PAYNOW_API_KEY || null;
+// You gave this store ID; you can override via env if you like.
 const PAYNOW_STORE_ID =
   process.env.PAYNOW_STORE_ID || "304676382217084928";
 const PAYNOW_BASE_URL =
   process.env.PAYNOW_BASE_URL || "https://api.paynow.gg";
 
-/**
- * Max number of expired products to show in the INVENTORY section.
- */
+// How many expired products to show in "Recently Expired"
 const MAX_EXPIRED_ITEMS =
   parseInt(process.env.PAYNOW_MAX_EXPIRED || "3", 10) || 3;
 
 /**
- * Format slug into human-readable name.
- * Example:
- *  "all-kits-global-monthly" => "All Kits Global Monthly"
- *  "vip-rf" => "Vip Random Farming"
+ * Turn a slug like "all-kits-global-monthly" into
+ * "All Kits Global Monthly" with special-case:
+ *   "rf" -> "Random Farming"
  */
 function formatProductSlug(slug) {
   if (!slug || typeof slug !== "string") return "Unknown Product";
@@ -39,44 +31,38 @@ function formatProductSlug(slug) {
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   });
 
-  return formatted.join(" ").trim() || "Unknown Product";
+  const joined = formatted.join(" ").trim();
+  return joined || "Unknown Product";
 }
 
 /**
- * Utility: safely read a product slug from a delivery item.
- * We try multiple possible shapes to be robust against schema changes.
+ * Safely pull the product slug out of a delivery item.
+ * Your sample shows: item.product.slug
  */
 function getProductSlugFromItem(item) {
   if (!item || typeof item !== "object") return null;
 
-  // Common possibilities – adjust if your schema differs
   if (item.product && typeof item.product.slug === "string") {
     return item.product.slug;
   }
-  if (typeof item.product_slug === "string") {
-    return item.product_slug;
-  }
-  if (typeof item.productSlug === "string") {
-    return item.productSlug;
-  }
+  if (typeof item.product_slug === "string") return item.product_slug;
+  if (typeof item.productSlug === "string") return item.productSlug;
 
-  // fallback: product id as slug
-  if (item.product && typeof item.product.id === "string") {
-    return item.product.id;
-  }
-  if (typeof item.product_id === "string") {
-    return item.product_id;
+  // fallback: try product.name if there is no slug
+  if (item.product && typeof item.product.name === "string") {
+    return item.product.name.replace(/\s+/g, "-").toLowerCase();
   }
 
   return null;
 }
 
 /**
- * Compute relative days between now and a given ISO datetime string.
- * Returns: { type: "future"|"past"|"now", days: number } or null on error.
+ * Compute difference in days between now and some ISO date string.
+ * Returns: { type: "future" | "past" | "now", days: number } or null.
  */
 function diffFromNowInDays(dateString) {
   if (!dateString) return null;
+
   const target = new Date(dateString);
   if (Number.isNaN(target.getTime())) return null;
 
@@ -90,67 +76,68 @@ function diffFromNowInDays(dateString) {
 }
 
 /**
- * Build a human-readable expiry label.
- * If no expiry, treat as lifetime.
+ * Build an expiry label, e.g.:
+ *  - "Lifetime"
+ *  - "expires in 21 days"
+ *  - "expired 12 days ago"
  */
-function formatExpiryLabel(item, isExpired) {
+function formatExpiryLabel(item, forceExpired = false) {
   const expiresAt =
-    item?.expires_at || item?.expiresAt || item?.override_expires_at;
+    item?.override_expires_at || item?.expires_at || null;
+  const expirable = item?.expirable === true;
 
-  if (!expiresAt) {
+  // Non-expiring or unknown → Lifetime
+  if (!expiresAt || !expirable) {
+    if (forceExpired) return "expired";
     return "Lifetime";
   }
 
   const diff = diffFromNowInDays(expiresAt);
-  if (!diff) return "Unknown expiry";
+  if (!diff) return forceExpired ? "expired" : "Unknown expiry";
 
-  if (isExpired || diff.type === "past") {
+  const isPast = diff.type === "past" || forceExpired;
+
+  if (isPast) {
     if (diff.days === 0) return "expired today";
     if (diff.days === 1) return "expired 1 day ago";
     return `expired ${diff.days} days ago`;
   }
 
-  // future or now
+  // future / now
   if (diff.days === 0) return "expires today";
   if (diff.days === 1) return "expires in 1 day";
   return `expires in ${diff.days} days`;
 }
 
 /**
- * Decide whether an item is active or expired.
- * Prefer explicit status, fall back to expires_at where needed.
+ * Basic classification of an item as active/expired using "state"
+ * and expiry timestamps.
+ *
+ * From your example:
+ *   state: "usable" => active
+ *   anything else => expired
  */
 function classifyItem(item) {
-  const status = (item?.status || "").toLowerCase();
+  const state = (item?.state || "").toLowerCase();
   const expiresAt =
-    item?.expires_at || item?.expiresAt || item?.override_expires_at;
-  const now = new Date();
+    item?.override_expires_at || item?.expires_at || null;
 
-  if (status === "active") return "active";
-  if (
-    status === "expired" ||
-    status === "revoked" ||
-    status === "cancelled" ||
-    status === "canceled" ||
-    status === "refunded" ||
-    status === "chargeback"
-  ) {
+  if (state === "usable") {
+    if (!expiresAt) return "active";
+
+    const diff = diffFromNowInDays(expiresAt);
+    if (!diff || diff.type === "future" || diff.type === "now") {
+      return "active";
+    }
     return "expired";
   }
 
-  if (expiresAt) {
-    const exp = new Date(expiresAt);
-    if (!Number.isNaN(exp.getTime())) {
-      return exp.getTime() >= now.getTime() ? "active" : "expired";
-    }
-  }
-
-  // Default to active if uncertain
-  return "active";
+  // not usable → treat as expired
+  return "expired";
 }
 
 /**
- * Split items into { activeItems, expiredItems } and sort them.
+ * Split array of items into { activeItems, expiredItems } and sort.
  */
 function splitActiveAndExpired(items) {
   const activeItems = [];
@@ -169,33 +156,40 @@ function splitActiveAndExpired(items) {
     }
   }
 
-  const getExpiryDate = (i) =>
+  const getRelevantDate = (i) =>
     new Date(
-      i?.expires_at || i?.expiresAt || i?.override_expires_at || i?.created_at,
+      i?.override_expires_at ||
+        i?.expires_at ||
+        i?.added_at ||
+        i?.created_at ||
+        0,
     );
 
-  // Active: sort by expiry asc (soonest first)
-  activeItems.sort((a, b) => getExpiryDate(a) - getExpiryDate(b));
-  // Expired: sort by expiry desc (most recent first)
-  expiredItems.sort((a, b) => getExpiryDate(b) - getExpiryDate(a));
+  // Active: sort by expiry ascending (soonest first)
+  activeItems.sort((a, b) => getRelevantDate(a) - getRelevantDate(b));
+  // Expired: sort by expiry descending (most recent first)
+  expiredItems.sort((a, b) => getRelevantDate(b) - getRelevantDate(a));
 
   return { activeItems, expiredItems };
 }
 
 /**
- * Build embed fields for INVENTORY section.
- * Returns an array of Discord embed fields.
+ * Build Discord embed fields from active/expired delivery items.
+ *
+ * OUTPUT:
+ *  - "Active Products" field
+ *  - "Recently Expired" field (up to MAX_EXPIRED_ITEMS)
  */
 function buildInventoryFieldsFromItems(activeItems, expiredItems) {
   const fields = [];
 
   // ACTIVE
-  if (activeItems && activeItems.length > 0) {
+  if (Array.isArray(activeItems) && activeItems.length > 0) {
     const lines = activeItems.map((item) => {
       const slug = getProductSlugFromItem(item);
-      const productName = formatProductSlug(slug);
+      const nameFromSlug = formatProductSlug(slug);
       const expiryLabel = formatExpiryLabel(item, false);
-      return `• ${productName} (${expiryLabel})`;
+      return `• ${nameFromSlug} (${expiryLabel})`;
     });
 
     fields.push({
@@ -205,18 +199,18 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
     });
   }
 
-  // EXPIRED (limit to MAX_EXPIRED_ITEMS)
-  const expiredToShow =
-    expiredItems && expiredItems.length > MAX_EXPIRED_ITEMS
-      ? expiredItems.slice(0, MAX_EXPIRED_ITEMS)
-      : expiredItems || [];
+  // EXPIRED
+  let expiredToShow = Array.isArray(expiredItems) ? expiredItems : [];
+  if (expiredToShow.length > MAX_EXPIRED_ITEMS) {
+    expiredToShow = expiredToShow.slice(0, MAX_EXPIRED_ITEMS);
+  }
 
   if (expiredToShow.length > 0) {
     const lines = expiredToShow.map((item) => {
       const slug = getProductSlugFromItem(item);
-      const productName = formatProductSlug(slug);
+      const nameFromSlug = formatProductSlug(slug);
       const expiryLabel = formatExpiryLabel(item, true);
-      return `• ${productName} — ${expiryLabel}`;
+      return `• ${nameFromSlug} — ${expiryLabel}`;
     });
 
     fields.push({
@@ -238,9 +232,11 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
 }
 
 /**
- * Low-level: Lookup PayNow customer by SteamID.
+ * Lookup a PayNow customer by SteamID64.
  *
  * GET /v1/stores/{storeId}/customers/lookup?steam_id=<steam64>
+ *
+ * Response is a CustomerDto object.
  */
 async function lookupCustomerBySteamId(steamId) {
   if (!PAYNOW_API_KEY || !PAYNOW_STORE_ID || !steamId) return null;
@@ -258,18 +254,27 @@ async function lookupCustomerBySteamId(steamId) {
       },
     });
 
-    if (!resp?.data || !resp.data.id) return null;
-    return resp.data; // full customer object
+    const customer = resp.data;
+    if (!customer || !customer.id) {
+      return null;
+    }
+
+    return customer; // CustomerDto
   } catch (err) {
-    console.error("[PayNow] lookupCustomerBySteamId error:", err.message || err);
+    console.error(
+      "[PayNow] lookupCustomerBySteamId error:",
+      err.response?.data || err.message || err,
+    );
     return null;
   }
 }
 
 /**
- * Low-level: Get all delivery items for a PayNow customer.
+ * Get delivery items for a specific customer.
  *
  * GET /v1/stores/{storeId}/customers/{customerId}/delivery/items
+ *
+ * Returns an array of DeliveryItemDto (your example).
  */
 async function getCustomerDeliveryItems(customerId) {
   if (!PAYNOW_API_KEY || !PAYNOW_STORE_ID || !customerId) return [];
@@ -288,32 +293,28 @@ async function getCustomerDeliveryItems(customerId) {
       },
     });
 
-    if (!Array.isArray(resp?.data)) return [];
+    if (!Array.isArray(resp.data)) return [];
     return resp.data;
   } catch (err) {
     console.error(
       "[PayNow] getCustomerDeliveryItems error:",
-      err.message || err,
+      err.response?.data || err.message || err,
     );
     return [];
   }
 }
 
 /**
- * High-level helper used by ticketCreate:
- * Given a SteamID64, fetch PayNow customer and their inventory.
- *
- * Returns:
- * {
- *   activeItems: [...],
- *   expiredItems: [...]
- * }
+ * High-level helper:
+ *  1) Lookup customer by SteamID
+ *  2) Fetch their delivery items
+ *  3) Split into active/expired
  */
 async function fetchCustomerInventoryForSteam(steamId) {
   if (!steamId) return null;
 
   const customer = await lookupCustomerBySteamId(steamId);
-  if (!customer?.id) return null;
+  if (!customer || !customer.id) return null;
 
   const items = await getCustomerDeliveryItems(customer.id);
   const { activeItems, expiredItems } = splitActiveAndExpired(items);
