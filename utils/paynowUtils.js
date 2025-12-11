@@ -1,9 +1,17 @@
 // paynowUtils.js
 const axios = require("axios");
 
-// ENV + defaults
+// -------------------------------------------------------------------
+// ENV CONFIG
+// -------------------------------------------------------------------
+
+/**
+ * PAYNOW_API_KEY must be the raw key, e.g.
+ * pnapi_v1_XXXXXXXXXXXXXXXXXXXXXXXX
+ *
+ * It is sent as: Authorization: APIKey <PAYNOW_API_KEY>
+ */
 const PAYNOW_API_KEY = process.env.PAYNOW_API_KEY || null;
-// You gave this store ID; you can override via env if you like.
 const PAYNOW_STORE_ID =
   process.env.PAYNOW_STORE_ID || "304676382217084928";
 const PAYNOW_BASE_URL =
@@ -13,52 +21,83 @@ const PAYNOW_BASE_URL =
 const MAX_EXPIRED_ITEMS =
   parseInt(process.env.PAYNOW_MAX_EXPIRED || "3", 10) || 3;
 
+// -------------------------------------------------------------------
+// PARSING / NAMING RULES (EDIT THESE TO CUSTOMIZE WORDING)
+// -------------------------------------------------------------------
+
 /**
- * Turn a slug like "all-kits-global-monthly" into
- * "All Kits Global Monthly" with special-case:
- *   "rf" -> "Random Farming"
+ * Server tokens → pretty names
+ * (used to detect server from slug tokens)
  */
-function formatProductSlug(slug) {
-  if (!slug || typeof slug !== "string") return "Unknown Product";
+const SERVER_TOKENS = {
+  global: "Global",
+  "10x": "10x",
+  rf: "Random Farming",
+  boatwars: "Boat Wars",
+  savas: "Savas",
+};
 
-  const parts = slug.split("-");
+/**
+ * Word replacements for product name fragments.
+ * Keys are lowercase tokens.
+ */
+const PRODUCT_WORD_REPLACEMENTS = {
+  allkits: "All Kits",
+  "all-kits": "All Kits",
+  all: "All",
+  kits: "Kits",
+  builder: "Builder",
+  pvp: "PvP",
+  resource: "Resource",
+  tools: "Tools",
+  components: "Components",
+  pirate: "Pirate",
+  captain: "Captain",
+  elite: "Elite",
+  god: "God",
+  turret: "Turret",
 
-  const formatted = parts.map((word) => {
-    if (!word) return "";
-    if (word.toLowerCase() === "rf") {
-      return "Random Farming";
-    }
-    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-  });
+  vip: "VIP",
+  vipplus: "VIP+",
 
-  const joined = formatted.join(" ").trim();
-  return joined || "Unknown Product";
+  credits: "Credits",
+
+  name: "Name",
+  color: "Color",
+
+  tag: "Tag",
+
+  gg: "GG",
+};
+
+/**
+ * Runtime words are derived from tokens like:
+ *  - permanent, lifetime
+ *  - monthly, weekly
+ *  - 1-year, 6-months, 3-months, etc.
+ *
+ * We parse them dynamically in parseRuntimeFromToken().
+ */
+
+// -------------------------------------------------------------------
+// GENERIC HELPERS
+// -------------------------------------------------------------------
+
+function isNumericToken(token) {
+  return /^\d+$/.test(token);
 }
 
 /**
- * Safely pull the product slug out of a delivery item.
- * Your sample shows: item.product.slug
+ * Capitalize a token if there is no explicit replacement.
  */
-function getProductSlugFromItem(item) {
-  if (!item || typeof item !== "object") return null;
-
-  if (item.product && typeof item.product.slug === "string") {
-    return item.product.slug;
-  }
-  if (typeof item.product_slug === "string") return item.product_slug;
-  if (typeof item.productSlug === "string") return item.productSlug;
-
-  // fallback: try product.name if there is no slug
-  if (item.product && typeof item.product.name === "string") {
-    return item.product.name.replace(/\s+/g, "-").toLowerCase();
-  }
-
-  return null;
+function defaultCapitalize(word) {
+  if (!word) return "";
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /**
- * Compute difference in days between now and some ISO date string.
- * Returns: { type: "future" | "past" | "now", days: number } or null.
+ * Compute days difference between now and a given ISO datetime.
+ * Returns { type: "future" | "past" | "now", days } or null.
  */
 function diffFromNowInDays(dateString) {
   if (!dateString) return null;
@@ -75,14 +114,48 @@ function diffFromNowInDays(dateString) {
   return { type: "now", days: 0 };
 }
 
+// -------------------------------------------------------------------
+// RUNTIME PARSING (FROM SLUG TOKENS)
+// -------------------------------------------------------------------
+
 /**
- * Build an expiry label, e.g.:
- *  - "Lifetime"
- *  - "expires in 21 days"
- *  - "expired 12 days ago"
+ * Parse a single token into a runtime string (e.g. "Permanent", "1 Year", "6 Months").
+ * Returns string or null if it doesn't look like a runtime token.
+ */
+function parseRuntimeFromToken(token) {
+  if (!token) return null;
+  const t = token.toLowerCase();
+
+  if (t === "permanent" || t === "lifetime") return "Permanent";
+  if (t === "monthly") return "Monthly";
+  if (t === "weekly") return "Weekly";
+
+  // 1-year, 1year, 2-years etc.
+  let m = t.match(/^(\d+)-?year(s)?$/);
+  if (m) {
+    const num = parseInt(m[1], 10);
+    return num === 1 ? "1 Year" : `${num} Years`;
+  }
+
+  // 6-months, 3-month, 12-months, etc.
+  m = t.match(/^(\d+)-?month(s)?$/);
+  if (m) {
+    const num = parseInt(m[1], 10);
+    return num === 1 ? "1 Month" : `${num} Months`;
+  }
+
+  return null;
+}
+
+/**
+ * Build an "expiry label" based on timestamps.
+ * For expired items we want something like "expired 329 days ago".
+ * For active items we can ignore this (we don't show expiry for active).
  */
 function formatExpiryLabel(item, forceExpired = false) {
-  // Determine the best possible timestamp to use.
+  const expirable = item?.expirable === true;
+
+  // Best timestamp to treat as "expiration" or "last valid":
   const expiresAt =
     item?.override_expires_at ||
     item?.expires_at ||
@@ -90,58 +163,219 @@ function formatExpiryLabel(item, forceExpired = false) {
     item?.removed_at ||
     null;
 
-  // If nothing available, fallback
   if (!expiresAt) {
-    return forceExpired ? "expired (no timestamp)" : "Lifetime";
+    if (!expirable) return "lifetime";
+    return forceExpired ? "expired" : "lifetime";
   }
 
   const diff = diffFromNowInDays(expiresAt);
-  if (!diff) return forceExpired ? "expired" : "Unknown expiry";
+  if (!diff) return forceExpired ? "expired" : "unknown";
 
   const isPast = diff.type === "past" || forceExpired;
 
   if (isPast) {
-    if (diff.days === 0) return "expired today";
-    if (diff.days === 1) return "expired 1 day ago";
-    return `expired ${diff.days} days ago`;
+    if (diff.days === 0) return "Expired today";
+    if (diff.days === 1) return "Expired 1 day ago";
+    return `Expired ${diff.days} days ago`;
   }
 
-  // Future / now
-  if (diff.days === 0) return "expires today";
-  if (diff.days === 1) return "expires in 1 day";
-  return `expires in ${diff.days} days`;
+  // future / now
+  if (diff.days === 0) return "Expires today";
+  if (diff.days === 1) return "Expires in 1 day";
+  return `Expires in ${diff.days} days`;
 }
 
+// -------------------------------------------------------------------
+// SLUG EXTRACTION
+// -------------------------------------------------------------------
 
 /**
- * Basic classification of an item as active/expired using "state"
- * and expiry timestamps.
+ * Safely extract product slug from a delivery item.
+ */
+function getProductSlugFromItem(item) {
+  if (!item || typeof item !== "object") return null;
+
+  if (item.product && typeof item.product.slug === "string") {
+    return item.product.slug;
+  }
+  if (typeof item.product_slug === "string") return item.product_slug;
+  if (typeof item.productSlug === "string") return item.productSlug;
+
+  // fallback: convert product.name to slug
+  if (item.product && typeof item.product.name === "string") {
+    return item.product.name.replace(/\s+/g, "-").toLowerCase();
+  }
+
+  return null;
+}
+
+// -------------------------------------------------------------------
+// MAIN SLUG PARSER
+// -------------------------------------------------------------------
+
+/**
+ * Parse a slug into structured info:
+ *  - productName (string to display)
+ *  - serverName (pretty string)
+ *  - runtimeText (e.g. "Permanent", "1 Year")
+ *  - kind: "generic" | "credits" | "tag" | "namecolor"
  *
- * From your example:
- *   state: "usable" => active
- *   anything else => expired
+ * This is where we apply custom layout rules.
+ */
+function parseProductSlug(slug) {
+  if (!slug || typeof slug !== "string") {
+    return {
+      productName: "Unknown Product",
+      serverName: "Global",
+      runtimeText: null,
+      kind: "generic",
+    };
+  }
+
+  const lowerSlug = slug.toLowerCase();
+  const tokens = lowerSlug.split("-").filter(Boolean);
+
+  // ----------------------------------------------------------------
+  // 1) Credits: "<amount>-credits"
+  // ----------------------------------------------------------------
+  if (tokens.includes("credits")) {
+    const amountToken = tokens.find((t) => isNumericToken(t));
+    const amount = amountToken || "";
+    const productName = amount
+      ? `${amount} Credits`
+      : "Credits";
+
+    return {
+      productName,
+      serverName: "Global",
+      runtimeText: null,
+      kind: "credits",
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 2) Tags: "<tag>-tag" (e.g. "gg-tag"), always global, no runtime
+  // ----------------------------------------------------------------
+  const tagIndex = tokens.indexOf("tag");
+  if (tagIndex !== -1) {
+    const prefixTokens = tokens.slice(0, tagIndex);
+    const formattedPrefix = prefixTokens
+      .map((t) => {
+        const rep = PRODUCT_WORD_REPLACEMENTS[t];
+        return rep || defaultCapitalize(t);
+      })
+      .filter(Boolean)
+      .join(" ");
+
+    const tagLabel = formattedPrefix
+      ? `${formattedPrefix} Tag`
+      : "Tag";
+
+    return {
+      productName: tagLabel,
+      serverName: "Global",
+      runtimeText: null,
+      kind: "tag",
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 3) Name Color: "name-color" or "gold-name-color"
+  // ----------------------------------------------------------------
+  const nameIndex = tokens.indexOf("name");
+  const colorIndex = tokens.indexOf("color");
+  if (nameIndex !== -1 && colorIndex !== -1) {
+    const prefixTokens = tokens.slice(0, nameIndex); // e.g. "gold"
+    const prefixName = prefixTokens
+      .map((t) => {
+        const rep = PRODUCT_WORD_REPLACEMENTS[t];
+        return rep || defaultCapitalize(t);
+      })
+      .filter(Boolean)
+      .join(" ");
+
+    const baseName = "Name Color";
+    const productName = prefixName
+      ? `${prefixName} ${baseName}`
+      : baseName;
+
+    return {
+      productName,
+      serverName: "Global",
+      runtimeText: null,
+      kind: "namecolor",
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 4) Generic items (kits, VIP, etc.)
+  // ----------------------------------------------------------------
+
+  let serverName = null;
+  let runtimeText = null;
+
+  // Copy tokens so we can remove server/runtime bits
+  const remaining = [...tokens];
+
+  // 4a) Detect server from known tokens
+  for (let i = 0; i < remaining.length; i++) {
+    const t = remaining[i];
+    if (Object.prototype.hasOwnProperty.call(SERVER_TOKENS, t)) {
+      serverName = SERVER_TOKENS[t];
+      remaining.splice(i, 1);
+      break;
+    }
+  }
+
+  // 4b) Detect runtime from tokens (scan from the end)
+  for (let i = remaining.length - 1; i >= 0; i--) {
+    const t = remaining[i];
+    const rt = parseRuntimeFromToken(t);
+    if (rt) {
+      runtimeText = rt;
+      remaining.splice(i, 1);
+      break;
+    }
+  }
+
+  // 4c) Whatever is left are product name words
+  const productTokens = remaining.filter(Boolean);
+
+  const productName =
+    productTokens
+      .map((t) => {
+        const rep = PRODUCT_WORD_REPLACEMENTS[t];
+        if (rep) return rep;
+        if (isNumericToken(t)) return t;
+        return defaultCapitalize(t);
+      })
+      .join(" ")
+      .trim() || "Unknown Product";
+
+  return {
+    productName,
+    serverName: serverName || "Global",
+    runtimeText,
+    kind: "generic",
+  };
+}
+
+// -------------------------------------------------------------------
+// ITEM CLASSIFICATION (ACTIVE / EXPIRED)
+// -------------------------------------------------------------------
+
+/**
+ * "usable" => active, everything else => expired.
  */
 function classifyItem(item) {
   const state = (item?.state || "").toLowerCase();
-  const expiresAt =
-    item?.override_expires_at || item?.expires_at || null;
-
-  if (state === "usable") {
-    if (!expiresAt) return "active";
-
-    const diff = diffFromNowInDays(expiresAt);
-    if (!diff || diff.type === "future" || diff.type === "now") {
-      return "active";
-    }
-    return "expired";
-  }
-
-  // not usable → treat as expired
+  if (state === "usable") return "active";
   return "expired";
 }
 
 /**
- * Split array of items into { activeItems, expiredItems } and sort.
+ * Split items into active vs expired, preserving PayNow order
+ * (we assume /delivery/items?asc=false already returns newest first).
  */
 function splitActiveAndExpired(items) {
   const activeItems = [];
@@ -160,42 +394,88 @@ function splitActiveAndExpired(items) {
     }
   }
 
-  const getRelevantDate = (i) =>
-    new Date(
-      i?.override_expires_at ||
-        i?.expires_at ||
-        i?.added_at ||
-        i?.created_at ||
-        0,
-    );
-
-  // Active: sort by expiry ascending (soonest first)
-  activeItems.sort((a, b) => getRelevantDate(a) - getRelevantDate(b));
-  // Expired: sort by expiry descending (most recent first)
-  expiredItems.sort((a, b) => getRelevantDate(b) - getRelevantDate(a));
-
   return { activeItems, expiredItems };
 }
 
+// -------------------------------------------------------------------
+// INVENTORY EMBED FIELD BUILDERS
+// -------------------------------------------------------------------
+
 /**
- * Build Discord embed fields from active/expired delivery items.
+ * Build the inventory "line" for an active product:
+ *   • Product | Server [Runtime]
+ */
+function formatActiveLine(item) {
+  const slug = getProductSlugFromItem(item);
+  const parsed = parseProductSlug(slug);
+
+  const base = `${parsed.productName} | ${parsed.serverName}`;
+
+  // Credits, tags, namecolor => no runtime bracket
+  if (
+    parsed.kind === "credits" ||
+    parsed.kind === "tag" ||
+    parsed.kind === "namecolor"
+  ) {
+    return `• ${base}`;
+  }
+
+  if (parsed.runtimeText) {
+    return `• ${base} [${parsed.runtimeText}]`;
+  }
+
+  // Generic without runtime
+  return `• ${base}`;
+}
+
+/**
+ * Build the inventory "line" for an expired product:
+ *   • Product | Server [Runtime] — Expired 5 days ago
+ */
+function formatExpiredLine(item) {
+  const slug = getProductSlugFromItem(item);
+  const parsed = parseProductSlug(slug);
+
+  const base = `${parsed.productName} | ${parsed.serverName}`;
+
+  // Credits, tags, namecolor => no runtime bracket
+  let line;
+  if (
+    parsed.kind === "credits" ||
+    parsed.kind === "tag" ||
+    parsed.kind === "namecolor"
+  ) {
+    line = `• ${base}`;
+  } else if (parsed.runtimeText) {
+    line = `• ${base} [${parsed.runtimeText}]`;
+  } else {
+    line = `• ${base}`;
+  }
+
+  const expiryLabel = formatExpiryLabel(item, true); // e.g. "expired 5 days ago"
+  const capitalizedExpiry =
+    expiryLabel && expiryLabel.length > 0
+      ? expiryLabel.charAt(0).toUpperCase() + expiryLabel.slice(1)
+      : "Expired";
+
+  return `${line} — ${capitalizedExpiry}`;
+}
+
+/**
+ * Build embed fields for the INVENTORY section:
  *
- * OUTPUT:
- *  - "Active Products" field
- *  - "Recently Expired" field (up to MAX_EXPIRED_ITEMS)
+ * ===== INVENTORY =====
+ * Active Products
+ * • ...
+ * Recently Expired
+ * • ...
  */
 function buildInventoryFieldsFromItems(activeItems, expiredItems) {
   const fields = [];
 
-  // ACTIVE
+  // ACTIVE PRODUCTS
   if (Array.isArray(activeItems) && activeItems.length > 0) {
-    const lines = activeItems.map((item) => {
-      const slug = getProductSlugFromItem(item);
-      const nameFromSlug = formatProductSlug(slug);
-      const expiryLabel = formatExpiryLabel(item, false);
-      return `• ${nameFromSlug} (${expiryLabel})`;
-    });
-
+    const lines = activeItems.map((item) => formatActiveLine(item));
     fields.push({
       name: "Active Products",
       value: lines.join("\n"),
@@ -203,20 +483,14 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
     });
   }
 
-  // EXPIRED
+  // RECENTLY EXPIRED (limit)
   let expiredToShow = Array.isArray(expiredItems) ? expiredItems : [];
   if (expiredToShow.length > MAX_EXPIRED_ITEMS) {
     expiredToShow = expiredToShow.slice(0, MAX_EXPIRED_ITEMS);
   }
 
   if (expiredToShow.length > 0) {
-    const lines = expiredToShow.map((item) => {
-      const slug = getProductSlugFromItem(item);
-      const nameFromSlug = formatProductSlug(slug);
-      const expiryLabel = formatExpiryLabel(item, true);
-      return `• ${nameFromSlug} — ${expiryLabel}`;
-    });
-
+    const lines = expiredToShow.map((item) => formatExpiredLine(item));
     fields.push({
       name: "Recently Expired",
       value: lines.join("\n"),
@@ -235,12 +509,14 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems) {
   return fields;
 }
 
+// -------------------------------------------------------------------
+// PAYNOW HTTP CALLS
+// -------------------------------------------------------------------
+
 /**
  * Lookup a PayNow customer by SteamID64.
  *
  * GET /v1/stores/{storeId}/customers/lookup?steam_id=<steam64>
- *
- * Response is a CustomerDto object.
  */
 async function lookupCustomerBySteamId(steamId) {
   if (!PAYNOW_API_KEY || !PAYNOW_STORE_ID || !steamId) return null;
@@ -249,21 +525,16 @@ async function lookupCustomerBySteamId(steamId) {
     const url = `${PAYNOW_BASE_URL}/v1/stores/${PAYNOW_STORE_ID}/customers/lookup`;
 
     const resp = await axios.get(url, {
-      params: {
-        steam_id: steamId,
-      },
-        headers: {
+      params: { steam_id: steamId },
+      headers: {
         Authorization: `APIKey ${PAYNOW_API_KEY}`,
         Accept: "*/*",
-        },
+      },
     });
 
     const customer = resp.data;
-    if (!customer || !customer.id) {
-      return null;
-    }
-
-    return customer; // CustomerDto
+    if (!customer || !customer.id) return null;
+    return customer;
   } catch (err) {
     console.error(
       "[PayNow] lookupCustomerBySteamId error:",
@@ -277,8 +548,6 @@ async function lookupCustomerBySteamId(steamId) {
  * Get delivery items for a specific customer.
  *
  * GET /v1/stores/{storeId}/customers/{customerId}/delivery/items
- *
- * Returns an array of DeliveryItemDto (your example).
  */
 async function getCustomerDeliveryItems(customerId) {
   if (!PAYNOW_API_KEY || !PAYNOW_STORE_ID || !customerId) return [];
@@ -289,12 +558,12 @@ async function getCustomerDeliveryItems(customerId) {
     const resp = await axios.get(url, {
       params: {
         limit: 100,
-        asc: false,
+        asc: false, // newest first
       },
-        headers: {
+      headers: {
         Authorization: `APIKey ${PAYNOW_API_KEY}`,
         Accept: "*/*",
-        },
+      },
     });
 
     if (!Array.isArray(resp.data)) return [];
@@ -309,9 +578,9 @@ async function getCustomerDeliveryItems(customerId) {
 }
 
 /**
- * High-level helper:
+ * High-level helper used by ticketCreate:
  *  1) Lookup customer by SteamID
- *  2) Fetch their delivery items
+ *  2) Fetch delivery items
  *  3) Split into active/expired
  */
 async function fetchCustomerInventoryForSteam(steamId) {
@@ -327,7 +596,6 @@ async function fetchCustomerInventoryForSteam(steamId) {
 }
 
 module.exports = {
-  formatProductSlug,
-  buildInventoryFieldsFromItems,
   fetchCustomerInventoryForSteam,
+  buildInventoryFieldsFromItems,
 };
