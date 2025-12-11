@@ -248,10 +248,10 @@ async function lookupCustomerBySteamId(steamId) {
       params: {
         steam_id: steamId,
       },
-      headers: {
-        Authorization: PAYNOW_API_KEY,
+        headers: {
+        Authorization: `APIKey ${PAYNOW_API_KEY}`,
         Accept: "*/*",
-      },
+        },
     });
 
     const customer = resp.data;
@@ -287,10 +287,10 @@ async function getCustomerDeliveryItems(customerId) {
         limit: 100,
         asc: false,
       },
-      headers: {
-        Authorization: PAYNOW_API_KEY,
+        headers: {
+        Authorization: `APIKey ${PAYNOW_API_KEY}`,
         Accept: "*/*",
-      },
+        },
     });
 
     if (!Array.isArray(resp.data)) return [];
