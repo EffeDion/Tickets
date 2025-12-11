@@ -434,10 +434,11 @@ async function createTicket(
                       inventory.expiredItems.length > 0)
                   ) {
                     ticketOpenEmbed.addFields(buildSeparator("Inventory"));
-
+                    
                     const inventoryFields = buildInventoryFieldsFromItems(
                       inventory.activeItems,
                       inventory.expiredItems,
+                      inventory.customerId
                     );
 
                     if (inventoryFields && inventoryFields.length > 0) {

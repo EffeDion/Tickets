@@ -671,8 +671,13 @@ async function fetchCustomerInventoryForSteam(steamId) {
   const items = await getCustomerDeliveryItems(customer.id);
   const { activeItems, expiredItems } = splitActiveAndExpired(items);
 
-  return { activeItems, expiredItems };
+  return {
+    activeItems,
+    expiredItems,
+    customerId: customer.id
+  };
 }
+
 
 module.exports = {
   fetchCustomerInventoryForSteam,
