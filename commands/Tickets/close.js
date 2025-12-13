@@ -5,7 +5,7 @@ const {
 } = require("discord.js");
 const { ticketsDB } = require("../../init.js");
 const { checkSupportRole } = require("../../utils/mainUtils.js");
-const { closeTicket } = require("../../utils/ticketClose.js");
+const { deleteTicket } = require("../../utils/ticketDelete.js");
 
 module.exports = {
   enabled: config.commands.close.enabled,
@@ -19,7 +19,7 @@ module.exports = {
         .setRequired(false),
     )
     .setDefaultMemberPermissions(
-      PermissionFlagsBits[config.commands.close.permission],
+      PermissionFlagsBits[config.commands.delete.permission]
     )
     .setDMPermission(false),
   async execute(interaction) {
@@ -27,15 +27,6 @@ module.exports = {
       return interaction.reply({
         content:
           config.errors.not_in_a_ticket || "You are not in a ticket channel!",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    if (
-      (await ticketsDB.get(`${interaction.channel.id}.status`)) === "Closed"
-    ) {
-      return interaction.reply({
-        content: "This ticket is already closed!",
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -52,6 +43,7 @@ module.exports = {
     await interaction.deferReply();
     const reason =
       interaction.options.getString("reason") || "No reason provided.";
-    await closeTicket(interaction, reason);
+
+    await deleteTicket(interaction, reason);
   },
 };

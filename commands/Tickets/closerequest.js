@@ -51,9 +51,13 @@ module.exports = {
     let ticketUserID = await getUser(
       await ticketsDB.get(`${interaction.channel.id}.userID`),
     );
-    if (interaction.user !== ticketUserID) {
+    const hasBanPermission = interaction.member.permissions.has(
+      PermissionFlagsBits.BanMembers
+    );
+
+    if (!hasBanPermission && interaction.user.id !== ticketUserID) {
       return interaction.reply({
-        content: "You are not the ticket creator!",
+        content: "You are not allowed to request closing this ticket.",
         flags: MessageFlags.Ephemeral,
       });
     }
