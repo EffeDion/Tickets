@@ -369,7 +369,26 @@ function parseProductSlug(slug) {
  */
 function classifyItem(item) {
   const state = (item?.state || "").toLowerCase();
-  if (state === "usable") return "active";
+
+  // Explicitly expired / invalid
+  if (state === "revoked") return "expired";
+
+  // Permanent or successfully granted products
+  if (state === "used") return "active";
+
+  // Timed / usable products
+  if (state === "active" || state === "usable") return "active";
+
+  // Fallback to date-based check
+  const dt =
+    item?.override_expires_at ||
+    item?.expires_at ||
+    null;
+
+  if (dt && new Date(dt).getTime() > Date.now()) {
+    return "active";
+  }
+
   return "expired";
 }
 
@@ -503,7 +522,7 @@ function formatExpiredLine(item) {
     line = `• ${base}`;
   }
 
-  const expiryLabel = formatExpiryLabel(item, true); // e.g. "expired 5 days ago"
+  const expiryLabel = formatExpiryLabel(item);
   const capitalizedExpiry =
     expiryLabel && expiryLabel.length > 0
       ? expiryLabel.charAt(0).toUpperCase() + expiryLabel.slice(1)
