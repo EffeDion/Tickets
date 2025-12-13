@@ -60,7 +60,7 @@ function buildPvpLine(profile) {
 function buildSeparator(title) {
   return {
     name: `===== ${title.toUpperCase()} =====`,
-    value: "",
+    value: "\u200B",
     inline: false,
   };
 }
