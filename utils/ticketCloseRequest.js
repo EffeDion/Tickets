@@ -3,14 +3,7 @@ const { ticketsDB, ticketCategories } = require("../init.js");
 const { configEmbed, sanitizeInput, logMessage } = require("./mainUtils.js");
 
 async function closeRequestTicket(interaction, reason = "No reason provided.") {
-  const channelId = interaction.channel.id;
-
-  const ticketButton = await ticketsDB.get(`${channelId}.button`);
-  const ticketOwnerId = await ticketsDB.get(`${channelId}.owner`);
-
-  if (!ticketOwnerId) {
-    throw new Error("Ticket owner could not be resolved.");
-  }
+  const ticketButton = await ticketsDB.get(`${interaction.channel.id}.button`);
 
   const closeButton = new ButtonBuilder()
     .setCustomId("closeTicket")
@@ -22,13 +15,13 @@ async function closeRequestTicket(interaction, reason = "No reason provided.") {
 
   const defaultValues = {
     color: "#FF2400",
-    title: "Ticket Closure Request",
+    title: "Ticket Close Request",
     description:
-      "**Staff member {staff} ({staff.tag})** has requested to close this ticket.\n\nTicket owner: **{owner}**\nReason: **{reason}**\n\nPlease confirm by pressing the button below.",
+      "${interaction.user.tag} requested to close the ticket.\n\nIf your issue has been resolved please press Accept & Close.",
     timestamp: true,
     footer: {
-      text: interaction.user.tag,
-      iconURL: interaction.user.displayAvatarURL({ extension: "png", size: 1024 }),
+      text: `${interaction.user.tag}`,
+      iconURL: `${interaction.user.displayAvatarURL({ extension: "png", size: 1024 })}`,
     },
   };
 
@@ -37,35 +30,33 @@ async function closeRequestTicket(interaction, reason = "No reason provided.") {
     defaultValues,
   );
 
-  if (closeRequestEmbed.data?.description) {
+  if (closeRequestEmbed.data && closeRequestEmbed.data.description) {
     closeRequestEmbed.setDescription(
       closeRequestEmbed.data.description
-        .replace(/\{staff\}/g, `${interaction.user}`)
-        .replace(/\{staff\.tag\}/g, sanitizeInput(interaction.user.tag))
-        .replace(/\{owner\}/g, `<@${ticketOwnerId}>`)
-        .replace(/\{reason\}/g, sanitizeInput(reason)),
+        .replace(/\{user\}/g, `${interaction.user}`)
+        .replace(/\{user\.tag\}/g, sanitizeInput(interaction.user.tag))
+        .replace(/\{reason\}/g, reason),
     );
   }
 
-  const requestReply = {
-    content: `<@${ticketOwnerId}>`,
+  let requestReply = {
     embeds: [closeRequestEmbed],
     components: [row],
   };
 
   if (config.commands.closerequest.pingRoles) {
     const category = ticketCategories[ticketButton];
-    if (category?.ping_role_ids?.length) {
-      requestReply.content +=
-        " " +
-        category.ping_role_ids.map(id => `<@&${id}>`).join(" ");
-    }
+    const pingRoles = category.ping_role_ids.length > 0;
+    const rolesToMention = pingRoles
+      ? category.ping_role_ids.map((roleId) => `<@&${roleId}>`).join(" ")
+      : "";
+    requestReply.content = rolesToMention;
   }
 
   await interaction.editReply(requestReply);
 
   await logMessage(
-    `${interaction.user.tag} requested to close the ticket.\n\nIf your issue has been resolved please press Accept`,
+    `${interaction.user.tag} requested to close the ticket.\n\nIf your issue has been resolved please press Accept & Close.`,
   );
 }
 
