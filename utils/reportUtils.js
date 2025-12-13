@@ -1,5 +1,9 @@
 const { EmbedBuilder } = require("discord.js");
-const { extractSteamIdsFromText, formatDaysAgo } = require("./steamUtils.js");
+const {
+  extractSteamIdsFromText,
+  formatDaysAgo,
+  formatServerTime,
+} = require("./steamUtils.js");
 
 /**
  * Extract Steam IDs from answers
@@ -20,6 +24,7 @@ function splitReporterAndTargets(allIds, isReportChannel) {
   if (!allIds || allIds.length === 0) {
     return { reporterId: null, targetIds: [] };
   }
+
   const unique = [...new Set(allIds)];
   const reporterId = unique[0];
 
@@ -27,8 +32,10 @@ function splitReporterAndTargets(allIds, isReportChannel) {
     return { reporterId, targetIds: [] };
   }
 
-  const targetIds = unique.slice(1);
-  return { reporterId, targetIds };
+  return {
+    reporterId,
+    targetIds: unique.slice(1),
+  };
 }
 
 /**
@@ -55,17 +62,6 @@ function buildPvpLine(profile) {
 }
 
 /**
- * Visual Separator Headers
- */
-function buildSeparator(title) {
-  return {
-    name: `===== ${title.toUpperCase()} =====`,
-    value: "\u200B",
-    inline: false,
-  };
-}
-
-/**
  * Ban line with time since ban
  */
 function buildBanLine(profile) {
@@ -79,16 +75,17 @@ function buildBanLine(profile) {
 
   const base = `Bans: VAC: ${vac}, Game: ${game}`;
   const since = formatDaysAgo(days);
+
   return since ? `${base} (last ban ${since})` : base;
 }
 
 /**
- * Reporter block (shown under ===== REPORTER or ===== INFORMATION)
+ * Reporter / Information block (self-contained separator)
  */
-function buildReporterField(profile) {
-  if (!profile) return null;
+function buildReporterField(profile, isReportChannel = true) {
+  if (!profile) return [];
 
-  const { formatServerTime } = require("./steamUtils.js");
+  const sectionTitle = isReportChannel ? "REPORTER" : "INFORMATION";
   const serverTime = profile?.enardoStats?.misc?.time_played;
 
   let rustPlaytime;
@@ -112,22 +109,39 @@ function buildReporterField(profile) {
   value += `${buildBanLine(profile)}\n`;
   value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
-  return { name: "\u200B", value, inline: false };
+  return [
+    {
+      name: `===== ${sectionTitle} =====`,
+      value: "",
+      inline: false,
+    },
+    {
+      name: "\u200B",
+      value,
+      inline: false,
+    },
+  ];
 }
 
 /**
- * Target blocks under ===== TARGETS =====
+ * Target blocks (self-contained separator)
  */
 function buildTargetFields(targetProfiles) {
   if (!Array.isArray(targetProfiles) || targetProfiles.length === 0) return [];
 
-  const { formatServerTime } = require("./steamUtils.js");
-  const fields = [];
+  const fields = [
+    {
+      name: "===== TARGETS =====",
+      value: "",
+      inline: false,
+    },
+  ];
 
   targetProfiles.forEach((profile, idx) => {
     if (!profile) return;
 
     const serverTime = profile?.enardoStats?.misc?.time_played;
+
     let rustPlaytime;
     if (profile.rustHours === 0 && serverTime > 0) {
       rustPlaytime = "Private / Not Visible";
@@ -150,14 +164,18 @@ function buildTargetFields(targetProfiles) {
     value += `${buildBanLine(profile)}\n`;
     value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
-    fields.push({ name: "\u200B", value, inline: false });
+    fields.push({
+      name: "\u200B",
+      value,
+      inline: false,
+    });
   });
 
   return fields;
 }
 
 /**
- * Admin overview embed (unchanged layout)
+ * Admin overview embed
  */
 function buildAdminSteamEmbed(
   interaction,
@@ -181,11 +199,20 @@ function buildAdminSteamEmbed(
       iconURL: interaction.user.displayAvatarURL({ extension: "png" }),
     });
 
-  const reporterField = buildReporterField(reporterProfile);
-  if (reporterField) embed.addFields(reporterField);
+  const isReportChannel = targetsProfiles && targetsProfiles.length > 0;
+
+  const reporterFields = buildReporterField(
+    reporterProfile,
+    isReportChannel,
+  );
+  if (reporterFields.length > 0) {
+    embed.addFields(reporterFields);
+  }
 
   const targetFields = buildTargetFields(targetsProfiles || []);
-  if (targetFields.length > 0) embed.addFields(targetFields);
+  if (targetFields.length > 0) {
+    embed.addFields(targetFields);
+  }
 
   return embed;
 }
@@ -196,5 +223,4 @@ module.exports = {
   buildReporterField,
   buildTargetFields,
   buildAdminSteamEmbed,
-  buildSeparator,
 };
