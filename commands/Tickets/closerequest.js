@@ -48,20 +48,6 @@ module.exports = {
       });
     }
 
-    let ticketUserID = await getUser(
-      await ticketsDB.get(`${interaction.channel.id}.userID`),
-    );
-    const hasBanPermission = interaction.member.permissions.has(
-      PermissionFlagsBits.BanMembers
-    );
-
-    if (!hasBanPermission && interaction.user.id !== ticketUserID) {
-      return interaction.reply({
-        content: "You are not allowed to request closing this ticket.",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
     await interaction.deferReply();
     const reason =
       interaction.options.getString("reason") || "No reason provided.";
