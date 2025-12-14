@@ -657,7 +657,7 @@ module.exports = {
             await message.edit({ components: [updatedActionRow] });
           });
 
-        if (interaction.values[0] === "closeTicket") {
+        if (interaction.values[0] === "deleteTicket") {
           if (
             (await ticketsDB.get(`${interaction.channel.id}.status`)) ===
             "Closed"
@@ -698,7 +698,7 @@ module.exports = {
           }
 
           await interaction.deferReply();
-          await closeTicket(interaction);
+          await deleteTicket(interaction);
         }
 
         if (interaction.values[0] === "ticketclaim") {
@@ -1305,7 +1305,7 @@ module.exports = {
       }
 
       // Ticket Close Button
-      if (interaction.customId === "closeTicket") {
+      if (interaction.customId === "deleteTicket") {
         if (
           (await ticketsDB.get(`${interaction.channel.id}.status`)) === "Closed"
         ) {
@@ -1350,7 +1350,7 @@ module.exports = {
 
         if (!withModal) {
           await interaction.deferReply();
-          await closeTicket(interaction);
+          await deleteTicket(interaction);
           return;
         }
 
@@ -1494,7 +1494,7 @@ module.exports = {
       if (interaction.customId === "closeButtonModal") {
         await interaction.deferReply();
         const reason = interaction.fields.getTextInputValue("question1");
-        await closeTicket(interaction, reason);
+        await deleteTicket(interaction, reason);
       }
 
       if (interaction.customId === "deleteButtonModal") {
