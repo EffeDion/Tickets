@@ -1260,7 +1260,14 @@ module.exports = {
 
         if (!withModal) {
           await interaction.deferReply();
-          await deleteTicket(interaction);
+          try {
+            await deleteTicket(interaction);
+          } catch (error) {
+            console.error("Error in deleteTicket:", error);
+            await interaction.editReply({
+              content: "An error occurred while closing the ticket.",
+            }).catch(console.error);
+          }
           return;
         }
 
@@ -1403,8 +1410,15 @@ module.exports = {
 
       if (interaction.customId === "closeButtonModal") {
         await interaction.deferReply();
-        const reason = interaction.fields.getTextInputValue("question1");
-        await deleteTicket(interaction, reason);
+        try {
+          const reason = interaction.fields.getTextInputValue("question1");
+          await deleteTicket(interaction, reason);
+        } catch (error) {
+          console.error("Error in deleteTicket from modal:", error);
+          await interaction.editReply({
+            content: "An error occurred while closing the ticket.",
+          }).catch(console.error);
+        }
       }
 
       if (interaction.customId === "deleteButtonModal") {
