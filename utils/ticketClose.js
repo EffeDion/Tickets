@@ -11,34 +11,31 @@ const {
   getUser,
   sanitizeInput,
   logMessage,
-  findAvailableCategory,
-  getPermissionOverwrites,
   getUserPreference,
   getChannel,
-  getRole,
   logError,
 } = require("./mainUtils.js");
 
 async function closeTicket(interaction, reason = "No reason provided.") {
-  await ticketsDB.set(
-    `${interaction.channel.id}.closeUserID`,
-    interaction.user.id,
-  );
+  const channelID = interaction.channel.id;
+  const channelName = interaction.channel.name;
+  
+  await ticketsDB.set(`${channelID}.closeUserID`, interaction.user.id);
+  
   const ticketUserID = await getUser(
-    await ticketsDB.get(`${interaction.channel.id}.userID`),
+    await ticketsDB.get(`${channelID}.userID`),
   );
-  const claimUserID = await ticketsDB.get(
-    `${interaction.channel.id}.claimUser`,
-  );
+  const claimUserID = await ticketsDB.get(`${channelID}.claimUser`);
   let claimUser;
+  
   if (claimUserID) {
     claimUser = await getUser(claimUserID);
   }
-  const ticketType = await ticketsDB.get(
-    `${interaction.channel.id}.ticketType`,
-  );
-  const ticketButton = await ticketsDB.get(`${interaction.channel.id}.button`);
+  
+  const ticketType = await ticketsDB.get(`${channelID}.ticketType`);
+  const ticketButton = await ticketsDB.get(`${channelID}.button`);
 
+  // Build log embed
   const logDefaultValues = {
     color: "#FF2400",
     title: "Ticket Logs | Ticket Closed",
@@ -63,7 +60,7 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     },
     {
       name: config.logCloseEmbed.field_ticket || "• Ticket",
-      value: `> #${sanitizeInput(interaction.channel.name)}\n> ${ticketType}`,
+      value: `> #${sanitizeInput(channelName)}\n> ${ticketType}`,
     },
     {
       name: config.logCloseEmbed.field_reason || "• Reason",
@@ -78,6 +75,7 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     });
   }
 
+  // Build action row with buttons/menu
   let row = new ActionRowBuilder();
   if (config.closeEmbed.useMenu) {
     const options = [];
@@ -156,6 +154,7 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     if (deleteButton) row.addComponents(deleteButton);
   }
 
+  // Build close embed
   const defaultValues = {
     color: "#FF2400",
     title: "Ticket Closed",
@@ -179,122 +178,25 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     );
   }
 
-  const category = ticketCategories[ticketButton];
-  const categoryIDs = category.closedCategoryID;
-  const closedCategoryID = await findAvailableCategory(categoryIDs);
-  const ticketCreatorPerms = category?.permissions?.ticketCreator;
-  const rolesPerms = category?.permissions?.supportRoles;
-  const creatorClosePerms = await getPermissionOverwrites(
-    ticketCreatorPerms,
-    "close",
-    {
-      allow: [],
-      deny: ["SendMessages"],
-    },
-  );
-  const rolesClosePerms = await getPermissionOverwrites(rolesPerms, "close", {
-    allow: [],
-    deny: ["SendMessages"],
-  });
+  // Update ticket status in database
+  await ticketsDB.set(`${channelID}.status`, "Closed");
+  await ticketsDB.set(`${channelID}.closedAt`, Date.now());
+  await mainDB.sub("openTickets", 1);
 
-  const addedUsersPerms = category?.permissions?.addedUsers;
-  const addedUsersClosePerms = await getPermissionOverwrites(
-    addedUsersPerms,
-    "close",
-    {
-      allow: [],
-      deny: ["SendMessages"],
-    },
-  );
-  const addedRolesPerms = category?.permissions?.addedRoles;
-  const addedRolesClosePerms = await getPermissionOverwrites(
-    addedRolesPerms,
-    "close",
-    {
-      allow: [],
-      deny: ["SendMessages"],
-    },
-  );
-
-  await interaction.channel.permissionOverwrites.edit(
-    ticketUserID,
-    creatorClosePerms,
-  );
-
-  await interaction.channel.setParent(closedCategoryID, {
-    lockPermissions: false,
-  });
-
-  category.support_role_ids.forEach(async (roleId) => {
-    await interaction.channel.permissionOverwrites
-      .edit(roleId, rolesClosePerms)
-      .catch((error) => {
-        console.error(`Error updating permissions of support roles:`, error);
-      });
-  });
-
-  if (claimUser) {
-    await interaction.channel.permissionOverwrites.edit(claimUser, {
-      SendMessages: false,
-      ViewChannel: true,
-    });
-  }
-
-  const addedUsers =
-    (await ticketsDB.get(`${interaction.channel.id}.addedUsers`)) || [];
-  const addedRoles =
-    (await ticketsDB.get(`${interaction.channel.id}.addedRoles`)) || [];
-  const usersArray = await Promise.all(
-    addedUsers.map(async (userId) => {
-      return await getUser(userId);
-    }),
-  );
-  const rolesArray = await Promise.all(
-    addedRoles.map(async (roleId) => {
-      return await getRole(roleId);
-    }),
-  );
-
-  try {
-    for (const member of usersArray) {
-      await interaction.channel.permissionOverwrites.edit(
-        member,
-        addedUsersClosePerms,
-      );
-    }
-  } catch (error) {
-    console.error(
-      "An error occurred while editing permission overwrites on closing a ticket:",
-      error,
-    );
-  }
-
-  try {
-    for (const role of rolesArray) {
-      await interaction.channel.permissionOverwrites.edit(
-        role,
-        addedRolesClosePerms,
-      );
-    }
-  } catch (error) {
-    console.error(
-      "An error occurred while editing permission overwrites on closing a ticket:",
-      error,
-    );
-  }
-
+  // Send close message in channel
   let messageID;
   const options = { embeds: [closeEmbed], fetchReply: true };
   if (row.components.length > 0) {
     options.components = [row];
   }
+  
   await interaction.editReply(options).then(async function (message) {
     messageID = message.id;
   });
-  await ticketsDB.set(`${interaction.channel.id}.closeMsgID`, messageID);
-  await ticketsDB.set(`${interaction.channel.id}.status`, "Closed");
-  await ticketsDB.set(`${interaction.channel.id}.closedAt`, Date.now());
-  await mainDB.sub("openTickets", 1);
+  
+  await ticketsDB.set(`${channelID}.closeMsgID`, messageID);
+
+  // Send to logs
   let logChannelId = config.logs.ticketClose || config.logs.default;
   let logsChannel = await getChannel(logChannelId);
   if (config.toggleLogs.ticketClose) {
@@ -305,10 +207,12 @@ async function closeTicket(interaction, reason = "No reason provided.") {
       client.emit("error", error);
     }
   }
+  
   await logMessage(
-    `${interaction.user.tag} closed the ticket #${interaction.channel.name} which was created by ${ticketUserID.tag} with the reason: ${reason}`,
+    `${interaction.user.tag} closed the ticket #${channelName} which was created by ${ticketUserID.tag} with the reason: ${reason}`,
   );
 
+  // DM the user if enabled
   if (config.closeDMEmbed.enabled && interaction.user.id !== ticketUserID.id) {
     const defaultDMValues = {
       color: "#FF0000",
@@ -322,7 +226,7 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     if (closeDMEmbed.data && closeDMEmbed.data.description) {
       closeDMEmbed.setDescription(
         closeDMEmbed.data.description
-          .replace(/\{ticketName\}/g, `${interaction.channel.name}`)
+          .replace(/\{ticketName\}/g, `${channelName}`)
           .replace(/\{user\}/g, `<@!${interaction.user.id}>`)
           .replace(/\{server\}/g, `${interaction.guild.name}`),
       );
@@ -333,8 +237,9 @@ async function closeTicket(interaction, reason = "No reason provided.") {
       try {
         await ticketUserID.send({ embeds: [closeDMEmbed] });
       } catch (error) {
-        error.errorContext = `[Close Slash Command Error]: failed to DM ${ticketUserID.tag} because their DMs were closed.`;
+        error.errorContext = `[Close Ticket Error]: failed to DM ${ticketUserID.tag} because their DMs were closed.`;
         await logError("ERROR", error);
+        
         const defaultErrorValues = {
           color: "#FF0000",
           title: "DMs Disabled",
@@ -380,6 +285,7 @@ async function closeTicket(interaction, reason = "No reason provided.") {
             client.emit("error", error);
           }
         }
+        
         await logMessage(
           `The bot could not DM ${ticketUserID.tag} because their DMs were closed`,
         );

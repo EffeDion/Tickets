@@ -110,7 +110,7 @@ function buildMissingInfoEmbed(ticketType, missingType) {
         fields = [
           {
             name: "📋 Required Information",
-            value: "**1. Your Steam ID** (the reporter)\n**2. The Steam ID of the player you're reporting**",
+            value: "**1. Your Steam ID**\n**2. The Steam ID of the player you're reporting**",
             inline: false,
           },
           {
