@@ -1405,6 +1405,22 @@ module.exports = {
         await interaction.showModal(modal);
       }
 
+      // Ticket Close Request Button
+      if (interaction.customId === "closeRequestButton") {
+        if (
+          (await ticketsDB.get(`${interaction.channel.id}.status`)) === "Closed"
+        ) {
+          return interaction.reply({
+            content: "This ticket is already closed!",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // No permission checks - anyone can click this button
+        await interaction.deferReply();
+        await deleteTicket(interaction);
+      }
+
       // Ticket Claim button
       if (interaction.customId === "ticketclaim") {
         const claimKey = `isClaimInProgress-${interaction.channel.id}`;

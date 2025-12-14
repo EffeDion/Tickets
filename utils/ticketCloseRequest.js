@@ -6,7 +6,7 @@ async function closeRequestTicket(interaction, reason = "No reason provided.") {
   const ticketButton = await ticketsDB.get(`${interaction.channel.id}.button`);
 
   const closeButton = new ButtonBuilder()
-    .setCustomId("deleteTicket")
+    .setCustomId("closeRequestButton")  // ← Changed from "deleteTicket"
     .setLabel(config.closeRequestButton.label)
     .setEmoji(config.closeRequestButton.emoji)
     .setStyle(ButtonStyle[config.closeRequestButton.style]);
