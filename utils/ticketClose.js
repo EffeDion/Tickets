@@ -1,9 +1,7 @@
 const {
-  ButtonBuilder,
-  ButtonStyle,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  StringSelectMenuBuilder,
+  ActionRowBuilder,
 } = require("discord.js");
 const { mainDB, ticketsDB, client, ticketCategories } = require("../init.js");
 const {
@@ -14,6 +12,10 @@ const {
   getUserPreference,
   getChannel,
   logError,
+  saveTranscript,
+  saveTranscriptTxt,
+  countMessagesInTicket,
+  lastUserMsgTimestamp,
 } = require("./mainUtils.js");
 
 async function closeTicket(interaction, reason = "No reason provided.") {
@@ -63,10 +65,21 @@ async function closeTicket(interaction, reason = "No reason provided.") {
       value: `> #${sanitizeInput(channelName)}\n> ${ticketType}`,
     },
     {
+      name: config.logCloseEmbed.field_creation || "• Creation Time",
+      value: `> <t:${await ticketsDB.get(`${channelID}.creationTime`)}:F>`,
+    },
+    {
       name: config.logCloseEmbed.field_reason || "• Reason",
       value: `> ${reason}`,
     },
   ]);
+
+  const closedAt = Date.now();
+  const closedTime = Math.floor(closedAt / 1000);
+  logCloseEmbed.addFields({
+    name: config.logCloseEmbed.field_closedAt || "• Closed at",
+    value: `> <t:${closedTime}:F>`,
+  });
 
   if (claimUser) {
     logCloseEmbed.addFields({
@@ -75,91 +88,12 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     });
   }
 
-  // Build action row with buttons/menu
-  let row = new ActionRowBuilder();
-  if (config.closeEmbed.useMenu) {
-    const options = [];
-
-    if (config.closeEmbed.reOpenButton !== false) {
-      const reopenOption = new StringSelectMenuOptionBuilder()
-        .setLabel(config.reOpenButton.label)
-        .setDescription(config.closeEmbed.reopenDescription)
-        .setValue("reOpen")
-        .setEmoji(config.reOpenButton.emoji);
-      options.push(reopenOption);
-    }
-
-    if (config.closeEmbed.transcriptButton !== false) {
-      const transcriptOption = new StringSelectMenuOptionBuilder()
-        .setLabel(config.transcriptButton.label)
-        .setDescription(config.closeEmbed.transcriptDescription)
-        .setValue("createTranscript")
-        .setEmoji(config.transcriptButton.emoji);
-      options.push(transcriptOption);
-    }
-
-    if (config.closeEmbed.deleteButton !== false) {
-      const deleteOption = new StringSelectMenuOptionBuilder()
-        .setLabel(config.deleteButton.label)
-        .setDescription(config.closeEmbed.deleteDescription)
-        .setValue("deleteTicket")
-        .setEmoji(config.deleteButton.emoji);
-      options.push(deleteOption);
-    }
-
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("closeMenu")
-      .setPlaceholder(config.closeEmbed.menuPlaceholder || "Select an option")
-      .setMinValues(1)
-      .setMaxValues(1)
-      .addOptions(options);
-
-    if (selectMenu.options.length > 0) {
-      row.addComponents(selectMenu);
-      await mainDB.set("closeMenuOptions", {
-        options,
-        placeholder: config.closeEmbed.menuPlaceholder || "Select an option",
-      });
-    }
-  } else {
-    const reOpenButton =
-      config.closeEmbed.reOpenButton !== false
-        ? new ButtonBuilder()
-            .setCustomId("reOpen")
-            .setLabel(config.reOpenButton.label)
-            .setEmoji(config.reOpenButton.emoji)
-            .setStyle(ButtonStyle[config.reOpenButton.style])
-        : null;
-
-    const transcriptButton =
-      config.closeEmbed.transcriptButton !== false
-        ? new ButtonBuilder()
-            .setCustomId("createTranscript")
-            .setLabel(config.transcriptButton.label)
-            .setEmoji(config.transcriptButton.emoji)
-            .setStyle(ButtonStyle[config.transcriptButton.style])
-        : null;
-
-    const deleteButton =
-      config.closeEmbed.deleteButton !== false
-        ? new ButtonBuilder()
-            .setCustomId("deleteTicket")
-            .setLabel(config.deleteButton.label)
-            .setEmoji(config.deleteButton.emoji)
-            .setStyle(ButtonStyle[config.deleteButton.style])
-        : null;
-
-    if (reOpenButton) row.addComponents(reOpenButton);
-    if (transcriptButton) row.addComponents(transcriptButton);
-    if (deleteButton) row.addComponents(deleteButton);
-  }
-
   // Build close embed
   const defaultValues = {
     color: "#FF2400",
     title: "Ticket Closed",
     description:
-      "This ticket was closed by **{user} ({user.tag})**\nReason: **{reason}**",
+      "This ticket was closed by **{user} ({user.tag})**\nReason: **{reason}**\n\nDeleting ticket in {time} seconds...",
     timestamp: true,
     footer: {
       text: `${interaction.user.tag}`,
@@ -169,39 +103,59 @@ async function closeTicket(interaction, reason = "No reason provided.") {
 
   const closeEmbed = await configEmbed("closeEmbed", defaultValues);
 
+  const deleteTicketTime =
+    config.deleteTicketTime >= 0 ? config.deleteTicketTime : 5;
+
   if (closeEmbed.data && closeEmbed.data.description) {
     closeEmbed.setDescription(
       closeEmbed.data.description
         .replace(/\{user\}/g, `${interaction.user}`)
         .replace(/\{user\.tag\}/g, sanitizeInput(interaction.user.tag))
-        .replace(/\{reason\}/g, reason),
+        .replace(/\{reason\}/g, reason)
+        .replace(/\{time\}/g, `${deleteTicketTime}`),
     );
+  }
+
+  // Generate transcript
+  let attachment;
+  const transcriptType = config.transcriptType || "HTML";
+  const transcriptImages =
+    config.transcriptImages !== undefined ? config.transcriptImages : false;
+  if (transcriptType === "HTML") {
+    attachment = await saveTranscript(
+      interaction,
+      null,
+      transcriptImages,
+      ticketUserID,
+    );
+  } else if (transcriptType === "TXT") {
+    attachment = await saveTranscriptTxt(interaction, null, ticketUserID);
   }
 
   // Update ticket status in database
   await ticketsDB.set(`${channelID}.status`, "Closed");
   await ticketsDB.set(`${channelID}.closedAt`, Date.now());
-  await mainDB.sub("openTickets", 1);
+  const ticketMessages = await countMessagesInTicket(interaction.channel);
+  await mainDB.add("totalMessages", ticketMessages);
+  const lastMsgTime = await lastUserMsgTimestamp(ticketUserID.id, channelID);
 
-  // Send close message in channel
-  let messageID;
-  const options = { embeds: [closeEmbed], fetchReply: true };
-  if (row.components.length > 0) {
-    options.components = [row];
-  }
-  
-  await interaction.editReply(options).then(async function (message) {
-    messageID = message.id;
-  });
-  
-  await ticketsDB.set(`${channelID}.closeMsgID`, messageID);
+  // Send close message in channel (without buttons since it's deleting)
+  await interaction.editReply({ embeds: [closeEmbed] });
 
-  // Send to logs
+  // Delete the ticket after the configured time
+  const deleteTime = deleteTicketTime * 1000;
+  setTimeout(async () => {
+    await mainDB.sub("openTickets", 1);
+    await ticketsDB.delete(channelID);
+    await interaction.channel.delete();
+  }, deleteTime);
+
+  // Send to logs with transcript
   let logChannelId = config.logs.ticketClose || config.logs.default;
   let logsChannel = await getChannel(logChannelId);
   if (config.toggleLogs.ticketClose) {
     try {
-      await logsChannel.send({ embeds: [logCloseEmbed] });
+      await logsChannel.send({ embeds: [logCloseEmbed], files: [attachment] });
     } catch (error) {
       error.errorContext = `[Logging Error]: please make sure to at least configure your default log channel`;
       client.emit("error", error);
@@ -212,30 +166,115 @@ async function closeTicket(interaction, reason = "No reason provided.") {
     `${interaction.user.tag} closed the ticket #${channelName} which was created by ${ticketUserID.tag} with the reason: ${reason}`,
   );
 
-  // DM the user if enabled
-  if (config.closeDMEmbed.enabled && interaction.user.id !== ticketUserID.id) {
-    const defaultDMValues = {
-      color: "#FF0000",
-      title: "Ticket Closed",
-      description:
-        "Your ticket **#{ticketName}** has been closed by {user} in **{server}**.",
-    };
+  // DM the user with transcript and rating system if enabled
+  const sendEmbed = config.DMUserSettings.embed;
+  const sendTranscript = config.DMUserSettings.transcript;
+  const sendRatingSystem = config.DMUserSettings.ratingSystem.enabled;
+  const userPreference = await getUserPreference(ticketUserID.id, "close");
+  
+  if (userPreference) {
+    if (sendEmbed || sendTranscript || sendRatingSystem) {
+      const defaultDMValues = {
+        color: "#FF2400",
+        title: "Ticket Closed",
+        description:
+          "Your support ticket has been closed. Here is your transcript and other information.",
+        thumbnail: interaction.guild.iconURL(),
+        timestamp: true,
+      };
 
-    const closeDMEmbed = await configEmbed("closeDMEmbed", defaultDMValues);
+      const closeDMEmbed = await configEmbed("closeDMEmbed", defaultDMValues);
 
-    if (closeDMEmbed.data && closeDMEmbed.data.description) {
-      closeDMEmbed.setDescription(
-        closeDMEmbed.data.description
-          .replace(/\{ticketName\}/g, `${channelName}`)
-          .replace(/\{user\}/g, `<@!${interaction.user.id}>`)
-          .replace(/\{server\}/g, `${interaction.guild.name}`),
+      closeDMEmbed
+        .addFields(
+          {
+            name: config.closeDMEmbed.field_server || "Server",
+            value: `> ${interaction.guild.name}`,
+            inline: true,
+          },
+          {
+            name: config.closeDMEmbed.field_ticket || "Ticket",
+            value: `> #${sanitizeInput(channelName)}`,
+            inline: true,
+          },
+          {
+            name: config.closeDMEmbed.field_category || "Category",
+            value: `> ${ticketType}`,
+            inline: true,
+          },
+        )
+        .addFields({
+          name: config.closeDMEmbed.field_creation || "Ticket Creation Time",
+          value: `> <t:${await ticketsDB.get(`${channelID}.creationTime`)}:F>`,
+          inline: true,
+        })
+        .addFields({
+          name: "Closed at",
+          value: `> <t:${closedTime}:F>`,
+          inline: true,
+        });
+
+      const options = [];
+      for (let i = 1; i <= 5; i++) {
+        const option = new StringSelectMenuOptionBuilder()
+          .setLabel(`${i} ${i > 1 ? "stars" : "star"}`)
+          .setEmoji(config.DMUserSettings.ratingSystem.menu.emoji)
+          .setValue(`${i}-star`);
+
+        options.push(option);
+      }
+
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId("ratingMenu")
+        .setPlaceholder(config.DMUserSettings.ratingSystem.menu.placeholder)
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(options);
+
+      const actionRowMenu = new ActionRowBuilder().addComponents(selectMenu);
+
+      const defaultRatingValues = {
+        color: "#2FF200",
+        title: "Ticket Feedback & Rating",
+        description:
+          "We value your feedback! Please take a moment to share your thoughts and rate our support system. Your rating can be between 1 and 5 stars by using the select menu below. Thank you for helping us improve.",
+      };
+
+      const ratingDMEmbed = await configEmbed(
+        "ratingDMEmbed",
+        defaultRatingValues,
       );
-    }
 
-    const userPreference = await getUserPreference(ticketUserID.id, "close");
-    if (userPreference) {
+      ratingDMEmbed.setFooter({
+        text: `Ticket: #${channelName} | Category: ${ticketType}`,
+      });
+
+      const messageDM = {};
+
+      if (sendEmbed) {
+        messageDM.embeds = [closeDMEmbed];
+      }
+
+      if (sendTranscript) {
+        messageDM.files = [attachment];
+      }
+
       try {
-        await ticketUserID.send({ embeds: [closeDMEmbed] });
+        if (sendRatingSystem === false) {
+          await ticketUserID.send(messageDM);
+        }
+        if (sendRatingSystem === true) {
+          if (Object.keys(messageDM).length !== 0) {
+            await ticketUserID.send(messageDM);
+          }
+          if (lastMsgTime !== null) {
+            await mainDB.set(`ratingMenuOptions`, options);
+            await ticketUserID.send({
+              embeds: [ratingDMEmbed],
+              components: [actionRowMenu],
+            });
+          }
+        }
       } catch (error) {
         error.errorContext = `[Close Ticket Error]: failed to DM ${ticketUserID.tag} because their DMs were closed.`;
         await logError("ERROR", error);
