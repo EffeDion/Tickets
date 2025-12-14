@@ -34,8 +34,7 @@ const {
   splitReporterAndTargets,
   buildReporterField,
   buildTargetFields,
-  buildAdminSteamEmbed,
-  buildSeparator,
+  buildAdminSteamEmbed
 } = require("./reportUtils.js");
 
 // PayNow inventory helpers
@@ -409,12 +408,6 @@ async function createTicket(
 
             // Reporter / Information section
             if (reporterProfile) {
-              if (isReportChannel) {
-                ticketOpenEmbed.addFields(buildSeparator("Reporter"));
-              } else {
-                ticketOpenEmbed.addFields(buildSeparator("Information"));
-              }
-
               ticketOpenEmbed.addFields(
                 buildReporterField(reporterProfile, isReportChannel),
               );
@@ -433,7 +426,6 @@ async function createTicket(
                     (inventory.activeItems.length > 0 ||
                       inventory.expiredItems.length > 0)
                   ) {
-                    ticketOpenEmbed.addFields(buildSeparator("Inventory"));
                     
                     const inventoryFields = buildInventoryFieldsFromItems(
                       inventory.activeItems,
@@ -457,7 +449,6 @@ async function createTicket(
             // Targets section (only in report tickets)
             const targetFields = buildTargetFields(targetsProfiles);
             if (isReportChannel && targetFields.length > 0) {
-              ticketOpenEmbed.addFields(buildSeparator("Targets"));
               ticketOpenEmbed.addFields(...targetFields);
             }
           } catch (err) {
