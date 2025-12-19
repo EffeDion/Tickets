@@ -36,7 +36,7 @@ const {
   buildTargetFields,
   buildAdminSteamEmbed,
   buildPlayerEmbed,
-  buildSuspectEmbed,
+  buildSuspectsEmbed,
 } = require("./reportUtils.js");
 
 // PayNow inventory helpers
@@ -751,16 +751,11 @@ async function createTicket(
                 }
               }
 
-              // SUSPECT embed(s)
+              // SUSPECTS embed (single embed with all suspects)
               if (isReportChannel && targetsProfiles.length > 0) {
-                for (let i = 0; i < targetsProfiles.length; i++) {
-                  const suspectEmbed = buildSuspectEmbed(
-                    targetsProfiles[i],
-                    targetsProfiles.length > 1 ? i + 1 : null,
-                  );
-                  if (suspectEmbed) {
-                    await channel.send({ embeds: [suspectEmbed] });
-                  }
+                const suspectsEmbed = buildSuspectsEmbed(targetsProfiles);
+                if (suspectsEmbed) {
+                  await channel.send({ embeds: [suspectsEmbed] });
                 }
               }
 

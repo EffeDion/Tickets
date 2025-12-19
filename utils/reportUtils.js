@@ -262,6 +262,20 @@ function buildAdminSteamEmbed(
 }
 
 /**
+ * Escape markdown characters in text to prevent formatting issues
+ */
+function escapeMarkdown(text) {
+  if (!text || typeof text !== "string") return text;
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/~/g, "\\~")
+    .replace(/`/g, "\\`")
+    .replace(/\|/g, "\\|");
+}
+
+/**
  * Build standalone PLAYER embed
  */
 function buildPlayerEmbed(profile) {
@@ -278,7 +292,7 @@ function buildPlayerEmbed(profile) {
   }
 
   let description = "";
-  description += `**Steam:** ${profile.steamName}\n`;
+  description += `**Steam:** ${escapeMarkdown(profile.steamName)}\n`;
   description += `**SteamID64:** \`${profile.steamId}\`\n`;
   description += `**Rust Playtime:** ${rustPlaytime}\n`;
 
@@ -304,45 +318,50 @@ function buildPlayerEmbed(profile) {
 }
 
 /**
- * Build standalone SUSPECT embed
+ * Build standalone SUSPECTS embed with all suspects in one embed
  */
-function buildSuspectEmbed(profile, index = null) {
-  if (!profile) return null;
-
-  const serverTime = profile?.enardoStats?.misc?.time_played;
-
-  let rustPlaytime;
-  if (profile.rustHours === 0 && serverTime > 0) {
-    rustPlaytime = "Private / Not Visible";
-  } else {
-    rustPlaytime =
-      profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
-  }
-
-  let description = "";
-  description += `**Steam:** ${profile.steamName}\n`;
-  description += `**SteamID64:** \`${profile.steamId}\`\n`;
-  description += `**Rust Playtime:** ${rustPlaytime}\n`;
-
-  if (serverTime && serverTime > 0) {
-    description += `**Server Playtime:** ${formatServerTime(serverTime)}\n`;
-  }
-
-  description += `**${buildPvpLine(profile)}**\n`;
-  description += `**${buildBanLine(profile)}**\n`;
-  description += `**Links:** [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
-
-  const title = index !== null ? `SUSPECT ${index}` : "SUSPECT";
+function buildSuspectsEmbed(profiles) {
+  if (!Array.isArray(profiles) || profiles.length === 0) return null;
 
   const embed = new EmbedBuilder()
     .setColor("#FF5252") // Red
-    .setTitle(title)
-    .setDescription(description)
+    .setTitle(profiles.length === 1 ? "SUSPECT" : "SUSPECTS")
     .setTimestamp();
 
-  if (profile.steamAvatar) {
-    embed.setThumbnail(profile.steamAvatar);
-  }
+  profiles.forEach((profile, idx) => {
+    if (!profile) return;
+
+    const serverTime = profile?.enardoStats?.misc?.time_played;
+
+    let rustPlaytime;
+    if (profile.rustHours === 0 && serverTime > 0) {
+      rustPlaytime = "Private / Not Visible";
+    } else {
+      rustPlaytime =
+        profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+    }
+
+    let fieldValue = "";
+    fieldValue += `**Steam:** ${escapeMarkdown(profile.steamName)}\n`;
+    fieldValue += `**SteamID64:** \`${profile.steamId}\`\n`;
+    fieldValue += `**Rust Playtime:** ${rustPlaytime}\n`;
+
+    if (serverTime && serverTime > 0) {
+      fieldValue += `**Server Playtime:** ${formatServerTime(serverTime)}\n`;
+    }
+
+    fieldValue += `**${buildPvpLine(profile)}**\n`;
+    fieldValue += `**${buildBanLine(profile)}**\n`;
+    fieldValue += `**Links:** [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
+
+    const fieldName = profiles.length === 1 ? "\u200B" : `Suspect ${idx + 1}`;
+
+    embed.addFields({
+      name: fieldName,
+      value: fieldValue,
+      inline: false,
+    });
+  });
 
   return embed;
 }
@@ -354,5 +373,5 @@ module.exports = {
   buildTargetFields,
   buildAdminSteamEmbed,
   buildPlayerEmbed,
-  buildSuspectEmbed,
+  buildSuspectsEmbed,
 };
