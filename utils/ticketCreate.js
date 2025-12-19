@@ -129,16 +129,24 @@ async function createTicket(
       if (category?.useCodeBlocks) {
         if (idsInAnswer.length > 1) {
           // Multiple IDs → one per line in codeblock
-          valueToShow = "```" + idsInAnswer.join("\n") + "```";
+          valueToShow = "```\n" + idsInAnswer.join("\n") + "\n```";
+        } else if (idsInAnswer.length === 1) {
+          // Single ID extracted → show just the ID
+          valueToShow = "```\n" + idsInAnswer[0] + "\n```";
         } else {
-          valueToShow = "```" + rawValue + "```";
+          // No IDs extracted → show raw value
+          valueToShow = "```\n" + rawValue + "\n```";
         }
       } else {
         if (idsInAnswer.length > 1) {
-          // Multiple IDs → one per line, each quoted
-          valueToShow = idsInAnswer.map((id) => `>>> ${id}`).join("\n");
+          // Multiple IDs → one per line, each on own line without quote prefix
+          valueToShow = idsInAnswer.join("\n");
+        } else if (idsInAnswer.length === 1) {
+          // Single ID extracted → show just the ID
+          valueToShow = idsInAnswer[0];
         } else {
-          valueToShow = `>>> ${rawValue}`;
+          // No IDs extracted → show raw value
+          valueToShow = rawValue;
         }
       }
 
