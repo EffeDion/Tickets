@@ -564,7 +564,7 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   if (Array.isArray(activeItems) && activeItems.length > 0) {
     const activeLines = activeItems.map((item) => formatActiveLine(item));
     fields.push(
-      ...splitIntoEmbedFields("Active Products", activeLines)
+      ...splitIntoEmbedFields("━━━━━ ✅ ACTIVE PRODUCTS ━━━━━", activeLines)
     );
   }
 
@@ -581,14 +581,14 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   if (expiredToShow.length > 0) {
     const expiredLines = expiredToShow.map((item) => formatExpiredLine(item));
     fields.push(
-      ...splitIntoEmbedFields("Recently Expired", expiredLines)
+      ...splitIntoEmbedFields("━━━━━ ⏱️ RECENTLY EXPIRED ━━━━━", expiredLines)
     );
   }
 
   // No inventory at all
   if (fields.length === 0) {
     fields.push({
-      name: "Inventory",
+      name: "━━━━━ 📦 INVENTORY ━━━━━",
       value: "No products found for this customer.",
       inline: false,
     });
@@ -597,7 +597,7 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   // Add clickable PayNow link
     if (customerId) {
     fields.push({
-        name: "PayNow",
+        name: "━━━━━ 🔗 PAYNOW ━━━━━",
         value: `[Customer Page](https://dashboard.paynow.gg/customers/${customerId})`,
         inline: false,
     });

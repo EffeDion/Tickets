@@ -137,7 +137,7 @@ function buildBanLine(profile) {
 function buildReporterField(profile, isReportChannel = true) {
   if (!profile) return [];
 
-  const sectionTitle = isReportChannel ? "PLAYER" : "INFORMATION";
+  const sectionTitle = isReportChannel ? "👤 PLAYER" : "👤 INFORMATION";
   const serverTime = profile?.enardoStats?.misc?.time_played;
 
   let rustPlaytime;
@@ -164,7 +164,7 @@ function buildReporterField(profile, isReportChannel = true) {
   // Return as single merged field
   return [
     {
-      name: `===== ${sectionTitle} =====`,
+      name: `━━━━━ ${sectionTitle} ━━━━━`,
       value,
       inline: false,
     },
@@ -192,7 +192,7 @@ function buildTargetFields(targetProfiles) {
         profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
     }
 
-    const suspectLabel = targetProfiles.length === 1 ? "SUSPECT" : `SUSPECT ${idx + 1}`;
+    const suspectLabel = targetProfiles.length === 1 ? "❗ SUSPECT" : `❗ SUSPECT ${idx + 1}`;
 
     let value = "";
     value += `Steam: ${profile.steamName}\n`;
@@ -209,7 +209,7 @@ function buildTargetFields(targetProfiles) {
 
     // Return as single merged field per suspect
     fields.push({
-      name: `===== ${suspectLabel} =====`,
+      name: `━━━━━ ${suspectLabel} ━━━━━`,
       value,
       inline: false,
     });
