@@ -516,9 +516,8 @@ async function createTicket(
 
         if (!skipSteam && modalAnswers.length > 0) {
           try {
-            const allIds = collectSteamIdsFromAnswers(modalAnswers);
             const { reporterId, targetIds } = splitReporterAndTargets(
-              allIds,
+              modalAnswers,
               isReportChannel,
             );
 

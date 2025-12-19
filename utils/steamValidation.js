@@ -42,11 +42,11 @@ function validateSteamIds(channelName, modalAnswers) {
       return {
         valid: false,
         type: "report",
-        missing: "target",
-        message: buildMissingInfoEmbed("report", "target"),
+        missing: "suspect",
+        message: buildMissingInfoEmbed("report", "suspect"),
       };
     }
-    // Valid: has reporter + at least one target
+    // Valid: has player + at least one suspect
     return { valid: true };
   }
 
@@ -56,11 +56,11 @@ function validateSteamIds(channelName, modalAnswers) {
       return {
         valid: false,
         type: "appeal",
-        missing: "reporter",
-        message: buildMissingInfoEmbed("appeal", "reporter"),
+        missing: "player",
+        message: buildMissingInfoEmbed("appeal", "player"),
       };
     }
-    // Valid: has at least reporter's Steam ID
+    // Valid: has at least player's Steam ID
     return { valid: true };
   }
 
@@ -70,11 +70,11 @@ function validateSteamIds(channelName, modalAnswers) {
       return {
         valid: false,
         type: "payment",
-        missing: "reporter",
-        message: buildMissingInfoEmbed("payment", "reporter"),
+        missing: "player",
+        message: buildMissingInfoEmbed("payment", "player"),
       };
     }
-    // Valid: has at least reporter's Steam ID
+    // Valid: has at least player's Steam ID
     return { valid: true };
   }
 
@@ -83,8 +83,8 @@ function validateSteamIds(channelName, modalAnswers) {
     return {
       valid: false,
       type: "general",
-      missing: "reporter",
-      message: buildMissingInfoEmbed("general", "reporter"),
+      missing: "player",
+      message: buildMissingInfoEmbed("general", "player"),
     };
   }
 
@@ -128,12 +128,12 @@ function buildMissingInfoEmbed(ticketType, missingType) {
             inline: false,
           },
         ];
-      } else if (missingType === "target") {
+      } else if (missingType === "suspect") {
         description = "Your report ticket is missing the Steam ID of the player you're reporting.";
         fields = [
           {
             name: "📋 Required Information",
-            value: "**The Steam ID of the player you're reporting**",
+            value: "**The Steam ID of the suspect/player you're reporting**",
             inline: false,
           },
           {

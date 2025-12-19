@@ -6,35 +6,87 @@ const {
 } = require("./steamUtils.js");
 
 /**
- * Extract Steam IDs from answers
+ * Extract Steam IDs from specific questions based on their labels
+ * Returns { reporterIds: [], suspectIds: [] }
  */
 function collectSteamIdsFromAnswers(modalAnswers) {
-  if (!Array.isArray(modalAnswers)) return [];
-  const allText = modalAnswers
-    .map((q) => (typeof q.value === "string" ? q.value : ""))
-    .join("\n");
+  if (!Array.isArray(modalAnswers)) return { reporterIds: [], suspectIds: [] };
 
-  return extractSteamIdsFromText(allText);
+  const reporterIds = [];
+  const suspectIds = [];
+
+  modalAnswers.forEach((q) => {
+    if (!q.value || typeof q.value !== "string") return;
+
+    const labelLower = (q.label || "").toLowerCase();
+    const idsInAnswer = extractSteamIdsFromText(q.value);
+
+    // Question explicitly asks for user's Steam ID
+    if (
+      labelLower.includes("your steam") ||
+      labelLower.includes("steamid64") ||
+      labelLower === "steam id" ||
+      labelLower === "steamid"
+    ) {
+      reporterIds.push(...idsInAnswer);
+    }
+    // Question asks about reporting someone or suspects
+    else if (
+      labelLower.includes("report") ||
+      labelLower.includes("suspect") ||
+      labelLower.includes("player") ||
+      labelLower.includes("cheater") ||
+      labelLower.includes("offender")
+    ) {
+      suspectIds.push(...idsInAnswer);
+    }
+    // Fallback: if we don't have clear context, add to suspects
+    else if (idsInAnswer.length > 0) {
+      suspectIds.push(...idsInAnswer);
+    }
+  });
+
+  return {
+    reporterIds: [...new Set(reporterIds)],
+    suspectIds: [...new Set(suspectIds)],
+  };
 }
 
 /**
- * Resolve Reporter vs Targets
+ * Resolve Reporter vs Suspects with improved logic
  */
-function splitReporterAndTargets(allIds, isReportChannel) {
-  if (!allIds || allIds.length === 0) {
-    return { reporterId: null, targetIds: [] };
+function splitReporterAndTargets(modalAnswers, isReportChannel) {
+  const { reporterIds, suspectIds } = collectSteamIdsFromAnswers(modalAnswers);
+
+  // If not a report channel, first ID found is the reporter
+  if (!isReportChannel) {
+    const allIds = [...reporterIds, ...suspectIds];
+    return {
+      reporterId: allIds[0] || null,
+      targetIds: [],
+    };
   }
 
-  const unique = [...new Set(allIds)];
-  const reporterId = unique[0];
+  // For report channels
+  let reporterId = null;
+  let targetIds = [];
 
-  if (!isReportChannel) {
-    return { reporterId, targetIds: [] };
+  // Priority 1: Use explicitly identified reporter
+  if (reporterIds.length > 0) {
+    reporterId = reporterIds[0];
+    // All other IDs (including other reporterIds) become suspects
+    targetIds = [...reporterIds.slice(1), ...suspectIds];
+  }
+  // Priority 2: If no explicit reporter but we have suspects
+  else if (suspectIds.length > 0) {
+    // First suspect becomes reporter, rest are suspects
+    reporterId = suspectIds[0];
+    targetIds = suspectIds.slice(1);
   }
 
   return {
     reporterId,
-    targetIds: unique.slice(1),
+    targetIds: [...new Set(targetIds)], // Remove duplicates
   };
 }
 
@@ -80,12 +132,12 @@ function buildBanLine(profile) {
 }
 
 /**
- * Reporter / Information block (self-contained separator)
+ * Reporter / Player / Information block with merged header
  */
 function buildReporterField(profile, isReportChannel = true) {
   if (!profile) return [];
 
-  const sectionTitle = isReportChannel ? "REPORTER" : "INFORMATION";
+  const sectionTitle = isReportChannel ? "PLAYER" : "INFORMATION";
   const serverTime = profile?.enardoStats?.misc?.time_played;
 
   let rustPlaytime;
@@ -109,14 +161,10 @@ function buildReporterField(profile, isReportChannel = true) {
   value += `${buildBanLine(profile)}\n`;
   value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
+  // Return as single merged field
   return [
     {
       name: `===== ${sectionTitle} =====`,
-      value: "",
-      inline: false,
-    },
-    {
-      name: "\u200B",
       value,
       inline: false,
     },
@@ -124,18 +172,12 @@ function buildReporterField(profile, isReportChannel = true) {
 }
 
 /**
- * Target blocks (self-contained separator)
+ * Target/Suspect blocks with merged header
  */
 function buildTargetFields(targetProfiles) {
   if (!Array.isArray(targetProfiles) || targetProfiles.length === 0) return [];
 
-  const fields = [
-    {
-      name: "===== TARGETS =====",
-      value: "",
-      inline: false,
-    },
-  ];
+  const fields = [];
 
   targetProfiles.forEach((profile, idx) => {
     if (!profile) return;
@@ -150,8 +192,9 @@ function buildTargetFields(targetProfiles) {
         profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
     }
 
+    const suspectLabel = targetProfiles.length === 1 ? "SUSPECT" : `SUSPECT ${idx + 1}`;
+
     let value = "";
-    value += `**Target ${idx + 1}**\n`;
     value += `Steam: ${profile.steamName}\n`;
     value += `SteamID64: \`${profile.steamId}\`\n`;
     value += `Rust Playtime: ${rustPlaytime}\n`;
@@ -164,8 +207,9 @@ function buildTargetFields(targetProfiles) {
     value += `${buildBanLine(profile)}\n`;
     value += `Links: [Steam Profile](${profile.steamProfileUrl}) | [BattleMetrics](${profile.battlemetricsUrl})`;
 
+    // Return as single merged field per suspect
     fields.push({
-      name: "\u200B",
+      name: `===== ${suspectLabel} =====`,
       value,
       inline: false,
     });
