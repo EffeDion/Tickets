@@ -1,5 +1,6 @@
 // paynowUtils.js
 const axios = require("axios");
+const { EmbedBuilder } = require("discord.js");
 
 // -------------------------------------------------------------------
 // ENV CONFIG
@@ -564,7 +565,7 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   if (Array.isArray(activeItems) && activeItems.length > 0) {
     const activeLines = activeItems.map((item) => formatActiveLine(item));
     fields.push(
-      ...splitIntoEmbedFields("━━━━━ ✅ ACTIVE PRODUCTS ━━━━━", activeLines)
+      ...splitIntoEmbedFields("~~                    ~~ ✅ ACTIVE PRODUCTS ~~                    ~~", activeLines)
     );
   }
 
@@ -581,14 +582,14 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   if (expiredToShow.length > 0) {
     const expiredLines = expiredToShow.map((item) => formatExpiredLine(item));
     fields.push(
-      ...splitIntoEmbedFields("━━━━━ ⏱️ RECENTLY EXPIRED ━━━━━", expiredLines)
+      ...splitIntoEmbedFields("~~                    ~~ ⏱️ RECENTLY EXPIRED ~~                    ~~", expiredLines)
     );
   }
 
   // No inventory at all
   if (fields.length === 0) {
     fields.push({
-      name: "━━━━━ 📦 INVENTORY ━━━━━",
+      name: "~~                    ~~ 📦 INVENTORY ~~                    ~~",
       value: "No products found for this customer.",
       inline: false,
     });
@@ -597,7 +598,7 @@ function buildInventoryFieldsFromItems(activeItems, expiredItems, customerId) {
   // Add clickable PayNow link
     if (customerId) {
     fields.push({
-        name: "━━━━━ 🔗 PAYNOW ━━━━━",
+        name: "~~                    ~~ 🔗 PAYNOW ~~                    ~~",
         value: `[Customer Page](https://dashboard.paynow.gg/customers/${customerId})`,
         inline: false,
     });
@@ -698,7 +699,82 @@ async function fetchCustomerInventoryForSteam(steamId) {
 }
 
 
+/**
+ * Build standalone PayNow inventory embed
+ */
+function buildPayNowInventoryEmbed(activeItems, expiredItems, customerId) {
+  const embed = new EmbedBuilder()
+    .setColor("#00BCD4") // Cyan
+    .setTitle("PAYNOW INVENTORY")
+    .setTimestamp();
+
+  // ACTIVE PRODUCTS
+  if (Array.isArray(activeItems) && activeItems.length > 0) {
+    const activeLines = activeItems.map((item) => formatActiveLine(item));
+    const activeText = activeLines.join("\n");
+    
+    if (activeText.length > 1024) {
+      // Split if too long
+      const fields = splitIntoEmbedFields("Active Products", activeLines);
+      fields.forEach(field => {
+        embed.addFields(field);
+      });
+    } else {
+      embed.addFields({
+        name: "✅ Active Products",
+        value: activeText,
+        inline: false,
+      });
+    }
+  }
+
+  // RECENTLY EXPIRED
+  let expiredToShow = Array.isArray(expiredItems)
+    ? expiredItems.filter(item => !shouldExcludeFromExpired(item))
+    : [];
+
+  if (expiredToShow.length > MAX_EXPIRED_ITEMS) {
+    expiredToShow = expiredToShow.slice(0, MAX_EXPIRED_ITEMS);
+  }
+
+  if (expiredToShow.length > 0) {
+    const expiredLines = expiredToShow.map((item) => formatExpiredLine(item));
+    const expiredText = expiredLines.join("\n");
+    
+    if (expiredText.length > 1024) {
+      const fields = splitIntoEmbedFields("Recently Expired", expiredLines);
+      fields.forEach(field => {
+        embed.addFields(field);
+      });
+    } else {
+      embed.addFields({
+        name: "⏱️ Recently Expired",
+        value: expiredText,
+        inline: false,
+      });
+    }
+  }
+
+  // No inventory
+  if ((!activeItems || activeItems.length === 0) && expiredToShow.length === 0) {
+    embed.setDescription("No products found for this customer.");
+  }
+
+  // PayNow link
+  if (customerId) {
+    embed.addFields({
+      name: "🔗 Customer Page",
+      value: `[View on PayNow Dashboard](https://dashboard.paynow.gg/customers/${customerId})`,
+      inline: false,
+    });
+  }
+
+  return embed;
+}
+
+
 module.exports = {
   fetchCustomerInventoryForSteam,
   buildInventoryFieldsFromItems,
+  buildPayNowInventoryEmbed,
 };

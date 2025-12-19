@@ -34,13 +34,16 @@ const {
   splitReporterAndTargets,
   buildReporterField,
   buildTargetFields,
-  buildAdminSteamEmbed
+  buildAdminSteamEmbed,
+  buildPlayerEmbed,
+  buildSuspectEmbed,
 } = require("./reportUtils.js");
 
 // PayNow inventory helpers
 const {
   fetchCustomerInventoryForSteam,
   buildInventoryFieldsFromItems,
+  buildPayNowInventoryEmbed,
 } = require("./paynowUtils.js");
 
 // Steam ID validation
@@ -543,51 +546,23 @@ async function createTicket(
               }
             }
 
-            // Reporter / Information section
-            if (reporterProfile) {
-              ticketOpenEmbed.addFields(
-                buildReporterField(reporterProfile, isReportChannel),
-              );
-
-              // ------------------------------------------------------------
-              // PayNow INVENTORY section, only for payment tickets
-              // ------------------------------------------------------------
-              if (isPaymentChannel && reporterProfile.steamId) {
-                try {
-                  const inventory = await fetchCustomerInventoryForSteam(
-                    reporterProfile.steamId,
-                  );
-
-                  if (
-                    inventory &&
-                    (inventory.activeItems.length > 0 ||
-                      inventory.expiredItems.length > 0)
-                  ) {
-                    
-                    const inventoryFields = buildInventoryFieldsFromItems(
-                      inventory.activeItems,
-                      inventory.expiredItems,
-                      inventory.customerId
-                    );
-
-                    if (inventoryFields && inventoryFields.length > 0) {
-                      ticketOpenEmbed.addFields(...inventoryFields);
-                    }
-                  }
-                } catch (invErr) {
-                  console.error(
-                    "[Ticket] Error while fetching PayNow inventory:",
-                    invErr,
-                  );
-                }
+            // Fetch PayNow inventory for payment tickets
+            let paynowInventory = null;
+            if (isPaymentChannel && reporterProfile?.steamId) {
+              try {
+                paynowInventory = await fetchCustomerInventoryForSteam(
+                  reporterProfile.steamId,
+                );
+              } catch (invErr) {
+                console.error(
+                  "[Ticket] Error while fetching PayNow inventory:",
+                  invErr,
+                );
               }
             }
 
-            // Targets section (only in report tickets)
-            const targetFields = buildTargetFields(targetsProfiles);
-            if (isReportChannel && targetFields.length > 0) {
-              ticketOpenEmbed.addFields(...targetFields);
-            }
+            // Store these for sending as separate embeds after main message
+            // (see below after channel.send)
           } catch (err) {
             console.error(
               "[Ticket] Error while fetching Steam/Enardo stats:",
@@ -747,30 +722,6 @@ async function createTicket(
               }
             }
 
-            // Admin-only Steam overview embed
-            try {
-              if (
-                (reporterProfile || targetsProfiles.length > 0) &&
-                config.toggleLogs.ticketCreate &&
-                logChannel
-              ) {
-                const adminSteamEmbed = buildAdminSteamEmbed(
-                  interaction,
-                  channel,
-                  reporterProfile,
-                  targetsProfiles,
-                );
-                if (adminSteamEmbed) {
-                  await logChannel.send({ embeds: [adminSteamEmbed] });
-                }
-              }
-            } catch (err) {
-              console.error(
-                "[Ticket] Failed to send admin Steam overview embed:",
-                err,
-              );
-            }
-
             await logMessage(
               `${interaction.user.tag} created the ticket #${channel.name}`,
             );
@@ -787,6 +738,54 @@ async function createTicket(
                 await systemMessage.delete();
               }
             });
+
+            // ------------------------------------------------------------------
+            // Send separate embeds for Steam profiles and PayNow inventory
+            // ------------------------------------------------------------------
+            try {
+              // PLAYER embed
+              if (reporterProfile) {
+                const playerEmbed = buildPlayerEmbed(reporterProfile);
+                if (playerEmbed) {
+                  await channel.send({ embeds: [playerEmbed] });
+                }
+              }
+
+              // SUSPECT embed(s)
+              if (isReportChannel && targetsProfiles.length > 0) {
+                for (let i = 0; i < targetsProfiles.length; i++) {
+                  const suspectEmbed = buildSuspectEmbed(
+                    targetsProfiles[i],
+                    targetsProfiles.length > 1 ? i + 1 : null,
+                  );
+                  if (suspectEmbed) {
+                    await channel.send({ embeds: [suspectEmbed] });
+                  }
+                }
+              }
+
+              // PayNow inventory embed
+              if (
+                isPaymentChannel &&
+                paynowInventory &&
+                (paynowInventory.activeItems?.length > 0 ||
+                  paynowInventory.expiredItems?.length > 0)
+              ) {
+                const inventoryEmbed = buildPayNowInventoryEmbed(
+                  paynowInventory.activeItems,
+                  paynowInventory.expiredItems,
+                  paynowInventory.customerId,
+                );
+                if (inventoryEmbed) {
+                  await channel.send({ embeds: [inventoryEmbed] });
+                }
+              }
+            } catch (embedErr) {
+              console.error(
+                "[Ticket] Failed to send separate Steam/PayNow embeds:",
+                embedErr,
+              );
+            }
 
             if (automatedResponses.length > 0) {
               const autoDefaultValues = {
