@@ -125,32 +125,13 @@ async function createTicket(
         }
       }
 
-      // Format for embed – handle multiple SteamIDs nicely
-      const idsInAnswer = extractSteamIdsFromText(rawValue || "");
-
+      // Format for embed – always show raw value to preserve user's text
+      // Steam IDs will be processed separately for PLAYER/SUSPECTS embeds
       let valueToShow;
       if (category?.useCodeBlocks) {
-        if (idsInAnswer.length > 1) {
-          // Multiple IDs → one per line in codeblock
-          valueToShow = "```\n" + idsInAnswer.join("\n") + "\n```";
-        } else if (idsInAnswer.length === 1) {
-          // Single ID extracted → show just the ID
-          valueToShow = "```\n" + idsInAnswer[0] + "\n```";
-        } else {
-          // No IDs extracted → show raw value
-          valueToShow = "```\n" + rawValue + "\n```";
-        }
+        valueToShow = "```\n" + rawValue + "\n```";
       } else {
-        if (idsInAnswer.length > 1) {
-          // Multiple IDs → one per line, each on own line without quote prefix
-          valueToShow = idsInAnswer.join("\n");
-        } else if (idsInAnswer.length === 1) {
-          // Single ID extracted → show just the ID
-          valueToShow = idsInAnswer[0];
-        } else {
-          // No IDs extracted → show raw value
-          valueToShow = rawValue;
-        }
+        valueToShow = rawValue;
       }
 
       ticketOpenEmbed.addFields({
