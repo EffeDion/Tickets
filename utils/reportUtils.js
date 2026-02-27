@@ -21,34 +21,44 @@ function collectSteamIdsFromAnswers(modalAnswers) {
     const labelLower = (q.label || "").toLowerCase();
     const idsInAnswer = extractSteamIdsFromText(q.value);
 
-    // Question explicitly asks for user's Steam ID
+    if (idsInAnswer.length === 0) return;
+
+    // Field 1 type: asking for YOUR steamid
     if (
       labelLower.includes("your steam") ||
       labelLower.includes("steamid64") ||
       labelLower === "steam id" ||
-      labelLower === "steamid"
+      labelLower === "steamid" ||
+      labelLower.includes("what is your")
     ) {
       reporterIds.push(...idsInAnswer);
     }
-    // Question asks about reporting someone or suspects
+    // Field 2 type: asking about the report/suspect
     else if (
       labelLower.includes("report") ||
       labelLower.includes("suspect") ||
       labelLower.includes("player") ||
       labelLower.includes("cheater") ||
-      labelLower.includes("offender")
+      labelLower.includes("offender") ||
+      labelLower.includes("fill in the following")
     ) {
       suspectIds.push(...idsInAnswer);
     }
-    // Fallback: if we don't have clear context, add to suspects
-    else if (idsInAnswer.length > 0) {
+    // Fallback
+    else {
       suspectIds.push(...idsInAnswer);
     }
   });
 
+  // Deduplicate - remove from suspectIds any ID already in reporterIds
+  const uniqueReporterIds = [...new Set(reporterIds)];
+  const uniqueSuspectIds = [...new Set(suspectIds)].filter(
+    id => !uniqueReporterIds.includes(id)
+  );
+
   return {
-    reporterIds: [...new Set(reporterIds)],
-    suspectIds: [...new Set(suspectIds)],
+    reporterIds: uniqueReporterIds,
+    suspectIds: uniqueSuspectIds,
   };
 }
 
@@ -141,11 +151,10 @@ function buildReporterField(profile, isReportChannel = true) {
   const serverTime = profile?.enardoStats?.misc?.time_played;
 
   let rustPlaytime;
-  if (profile.rustHours === 0 && serverTime > 0) {
+  if (profile.rustHours === 0 || profile.rustHours == null) {
     rustPlaytime = "Private / Not Visible";
   } else {
-    rustPlaytime =
-      profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+    rustPlaytime = `${profile.rustHours} hrs`;
   }
 
   let value = "";
@@ -185,11 +194,10 @@ function buildTargetFields(targetProfiles) {
     const serverTime = profile?.enardoStats?.misc?.time_played;
 
     let rustPlaytime;
-    if (profile.rustHours === 0 && serverTime > 0) {
+    if (profile.rustHours === 0 || profile.rustHours == null) {
       rustPlaytime = "Private / Not Visible";
     } else {
-      rustPlaytime =
-        profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+      rustPlaytime = `${profile.rustHours} hrs`;
     }
 
     const suspectLabel = targetProfiles.length === 1 ? "❗ SUSPECT" : `❗ SUSPECT ${idx + 1}`;
@@ -284,13 +292,11 @@ function buildPlayerEmbed(profile) {
   const serverTime = profile?.enardoStats?.misc?.time_played;
 
   let rustPlaytime;
-  if (profile.rustHours === 0 && serverTime > 0) {
+  if (profile.rustHours === 0 || profile.rustHours == null) {
     rustPlaytime = "Private / Not Visible";
   } else {
-    rustPlaytime =
-      profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+    rustPlaytime = `${profile.rustHours} hrs`;
   }
-
   let description = "";
   description += `**Steam:** ${escapeMarkdown(profile.steamName)}\n`;
   description += `**SteamID64:** \`${profile.steamId}\`\n`;
@@ -334,11 +340,10 @@ function buildSuspectsEmbed(profiles) {
     const serverTime = profile?.enardoStats?.misc?.time_played;
 
     let rustPlaytime;
-    if (profile.rustHours === 0 && serverTime > 0) {
+    if (profile.rustHours === 0 || profile.rustHours == null) {
       rustPlaytime = "Private / Not Visible";
     } else {
-      rustPlaytime =
-        profile.rustHours != null ? `${profile.rustHours} hrs` : "N/A";
+      rustPlaytime = `${profile.rustHours} hrs`;
     }
 
     let fieldValue = "";

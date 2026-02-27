@@ -373,128 +373,6 @@ async function createTicket(
         // VALIDATE STEAM IDS FIRST
         // ------------------------------------------------------------------
         const validation = validateSteamIds(channel.name, modalAnswers);
-        
-        // If validation fails, send the missing info message
-        if (!validation.valid) {
-          // Send ticket open embed first
-          let textContent =
-            category.textContent !== undefined
-              ? category.textContent
-              : "Please wait for the support staff to check your ticket!";
-          textContent = textContent
-            .replace(/\{user\}/g, interaction.user)
-            .replace(/\{user\.tag\}/g, sanitizeInput(interaction.user.tag));
-          const pingRoles =
-            category.pingRoles && category.ping_role_ids.length > 0;
-          if (pingRoles) {
-            const rolesToMention = category.ping_role_ids
-              .map((roleId) => `<@&${roleId}>`)
-              .join(" ");
-            textContent = textContent.replace(
-              /\{support-roles\}/g,
-              rolesToMention,
-            );
-          }
-
-          await channel.send({
-            content: textContent,
-            embeds: [ticketOpenEmbed],
-            components: [answerRow],
-          });
-
-          // Send the missing info message after a short delay
-          setTimeout(async () => {
-            await channel.send({
-              content: `<@${interaction.user.id}>`,
-              embeds: [validation.message],
-            });
-          }, 2000);
-
-          // Continue with ticket creation process
-          const defaultValues = {
-            color: "#2FF200",
-            title: "Ticket Created!",
-            description:
-              "Your new ticket ({channel}) has been created, **{user}**!",
-            timestamp: true,
-            footer: {
-              text: `${interaction.user.tag}`,
-              iconURL: `${interaction.user.displayAvatarURL({
-                extension: "png",
-                size: 1024,
-              })}`,
-            },
-          };
-
-          const newTicketEmbed = await configEmbed(
-            "newTicketEmbed",
-            defaultValues,
-          );
-
-          if (newTicketEmbed.data && newTicketEmbed.data.description) {
-            newTicketEmbed.setDescription(
-              newTicketEmbed.data.description
-                .replace(/\{channel\}/g, `<#${channel.id}>`)
-                .replace(
-                  /\{user\}/g,
-                  `${sanitizeInput(interaction.user.username)}`,
-                ),
-            );
-          }
-          const actionRow4 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setStyle(ButtonStyle.Link)
-              .setURL(`${channel.url}`)
-              .setLabel(config.newTicketButton.label)
-              .setEmoji(config.newTicketButton.emoji),
-          );
-          await interaction.editReply({
-            embeds: [newTicketEmbed],
-            components: [actionRow4],
-            flags: MessageFlags.Ephemeral,
-          });
-
-          const creationTime = Math.floor(new Date().getTime() / 1000);
-
-          await ticketsDB.set(`${channel.id}`, {
-            userID: interaction.user.id,
-            ticketType: category.name,
-            button: customId,
-            msgID: "",
-            claimed: false,
-            claimUser: "",
-            status: "Open",
-            closeUserID: "",
-            creationTime: creationTime,
-            addedUsers: [],
-            addedRoles: [],
-            closedAt: 0,
-          });
-
-          await mainDB.add("openTickets", 1);
-          await addTicketCreator(interaction.user.id);
-          await mainDB.add("totalTickets", 1);
-
-          // Ghost ping
-          await channel
-            .send({ content: `<@${interaction.user.id}>` })
-            .then((message) => {
-              message.delete();
-            });
-
-          if (pingRoles && category.ghostPingRoles) {
-            const rolesToMention = category.ping_role_ids
-              .map((roleId) => `<@&${roleId}>`)
-              .join(" ");
-            await channel
-              .send({ content: rolesToMention })
-              .then((message) => {
-                message.delete();
-              });
-          }
-
-          return; // Exit early, validation failed
-        }
 
         // ------------------------------------------------------------------
         // Steam / Enardo stats + report / payment logic based on CHANNEL NAME
@@ -753,12 +631,22 @@ async function createTicket(
                   await channel.send({ embeds: [inventoryEmbed] });
                 }
               }
-            } catch (embedErr) {
-              console.error(
-                "[Ticket] Failed to send separate Steam/PayNow embeds:",
-                embedErr,
-              );
-            }
+              } catch (embedErr) {
+                console.error(
+                  "[Ticket] Failed to send separate Steam/PayNow embeds:",
+                  embedErr,
+                );
+              }
+
+              // Send missing info warning if validation failed
+              if (!validation.valid) {
+                setTimeout(async () => {
+                  await channel.send({
+                    content: `<@${interaction.user.id}>`,
+                    embeds: [validation.message],
+                  });
+                }, 2000);
+              }
 
             if (automatedResponses.length > 0) {
               const autoDefaultValues = {
