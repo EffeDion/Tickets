@@ -89,9 +89,8 @@ function splitReporterAndTargets(modalAnswers, isReportChannel) {
   }
   // Priority 2: If no explicit reporter but we have suspects
   else if (suspectIds.length > 0) {
-    // First suspect becomes reporter, rest are suspects
-    reporterId = suspectIds[0];
-    targetIds = suspectIds.slice(1);
+    reporterId = null;
+    targetIds = suspectIds;
   }
 
   return {
