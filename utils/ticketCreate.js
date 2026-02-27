@@ -708,18 +708,14 @@ async function createTicket(
               `${interaction.user.tag} created the ticket #${channel.name}`,
             );
 
-            await message.pin().then(async () => {
-              const fetchedMessages =
-                await message.channel.messages.fetch({
-                  limit: 10,
-                });
-              const systemMessage = fetchedMessages.find(
-                (msg) => msg.system === true,
-              );
-              if (systemMessage) {
-                await systemMessage.delete();
-              }
-            });
+            try {
+              await message.pin();
+              const fetchedMessages = await message.channel.messages.fetch({ limit: 10 });
+              const systemMessage = fetchedMessages.find((msg) => msg.system === true);
+              if (systemMessage) await systemMessage.delete();
+            } catch (pinError) {
+              console.error("[Ticket] Failed to pin message:", pinError.message);
+            }
 
             // ------------------------------------------------------------------
             // Send separate embeds for Steam profiles and PayNow inventory
