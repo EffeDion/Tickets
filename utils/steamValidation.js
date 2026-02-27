@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require("discord.js");
 const { extractSteamIdsFromText } = require("./steamUtils.js");
+const { collectSteamIdsFromAnswers } = require("./reportUtils.js");
 
 /**
  * Validates Steam ID requirements based on ticket type
@@ -30,6 +31,8 @@ function validateSteamIds(channelName, modalAnswers) {
 
   // Validation for REPORT tickets
   if (isReportChannel) {
+    const { reporterIds, suspectIds } = collectSteamIdsFromAnswers(modalAnswers);
+
     if (uniqueIds.length === 0) {
       return {
         valid: false,
@@ -38,7 +41,15 @@ function validateSteamIds(channelName, modalAnswers) {
         message: buildMissingInfoEmbed("report", "both"),
       };
     }
-    if (uniqueIds.length === 1) {
+    if (reporterIds.length === 0 && suspectIds.length > 0) {
+      return {
+        valid: false,
+        type: "report",
+        missing: "reporter",
+        message: buildMissingInfoEmbed("report", "reporter"),
+      };
+    }
+    if (suspectIds.length === 0 && reporterIds.length > 0) {
       return {
         valid: false,
         type: "report",
@@ -46,7 +57,6 @@ function validateSteamIds(channelName, modalAnswers) {
         message: buildMissingInfoEmbed("report", "suspect"),
       };
     }
-    // Valid: has player + at least one suspect
     return { valid: true };
   }
 
@@ -105,7 +115,25 @@ function buildMissingInfoEmbed(ticketType, missingType) {
 
   switch (ticketType) {
     case "report":
-      if (missingType === "both") {
+      if (missingType === "reporter") {
+        description = "Your report ticket is missing your own Steam ID.";
+        fields = [
+          {
+            name: "📋 Required Information",
+            value: "**Your own Steam ID** (the player creating this report)",
+            inline: false,
+          },
+          {
+            name: "💡 How to Provide",
+            value: "Please send a message with your Steam ID in any of these formats:\n" +
+                  "• Steam64 ID: `76561198XXXXXXXXX`\n" +
+                  "• Steam Profile URL: `https://steamcommunity.com/profiles/76561198XXXXXXXXX`\n" +
+                  "• Steam Vanity URL: `https://steamcommunity.com/id/yourname`\n" +
+                  "• STEAM_0 format: `STEAM_0:1:12345678`",
+            inline: false,
+          },
+        ];
+      } else if (missingType === "both") {
         description = "Your report ticket is missing required Steam ID information. Please provide the following:";
         fields = [
           {
@@ -116,10 +144,10 @@ function buildMissingInfoEmbed(ticketType, missingType) {
           {
             name: "💡 How to Provide",
             value: "Please send a message in this ticket with both Steam IDs in any of these formats:\n" +
-                   "• Steam64 ID: `76561198XXXXXXXXX`\n" +
-                   "• Steam Profile URL: `https://steamcommunity.com/profiles/76561198XXXXXXXXX`\n" +
-                   "• Steam Vanity URL: `https://steamcommunity.com/id/yourname`\n" +
-                   "• STEAM_0 format: `STEAM_0:1:12345678`",
+                  "• Steam64 ID: `76561198XXXXXXXXX`\n" +
+                  "• Steam Profile URL: `https://steamcommunity.com/profiles/76561198XXXXXXXXX`\n" +
+                  "• Steam Vanity URL: `https://steamcommunity.com/id/yourname`\n" +
+                  "• STEAM_0 format: `STEAM_0:1:12345678`",
             inline: false,
           },
           {
@@ -139,10 +167,10 @@ function buildMissingInfoEmbed(ticketType, missingType) {
           {
             name: "💡 How to Provide",
             value: "Please send a message with the reported player's Steam ID in any of these formats:\n" +
-                   "• Steam64 ID: `76561198XXXXXXXXX`\n" +
-                   "• Steam Profile URL: `https://steamcommunity.com/profiles/76561198XXXXXXXXX`\n" +
-                   "• Steam Vanity URL: `https://steamcommunity.com/id/theirname`\n" +
-                   "• STEAM_0 format: `STEAM_0:1:12345678`",
+                  "• Steam64 ID: `76561198XXXXXXXXX`\n" +
+                  "• Steam Profile URL: `https://steamcommunity.com/profiles/76561198XXXXXXXXX`\n" +
+                  "• Steam Vanity URL: `https://steamcommunity.com/id/theirname`\n" +
+                  "• STEAM_0 format: `STEAM_0:1:12345678`",
             inline: false,
           },
         ];
