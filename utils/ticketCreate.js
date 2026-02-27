@@ -358,6 +358,7 @@ async function createTicket(
               PermissionFlagsBits.ViewChannel,
               PermissionFlagsBits.SendMessages,
               PermissionFlagsBits.ReadMessageHistory,
+              PermissionFlagsBits.ManageMessages,
             ],
           },
           ...category.support_role_ids.map((roleId) => ({
